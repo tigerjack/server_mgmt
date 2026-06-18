@@ -34,7 +34,7 @@
   become_user: "{{ containers_user }}"
   containers.podman.podman_container:
     name: db_forgejo
-    image: "{{ mariadb_image }}"
+    image: "{{ forgejo_db_image }}"
     state: present
     command:
       - "--transaction-isolation=READ-COMMITTED"
