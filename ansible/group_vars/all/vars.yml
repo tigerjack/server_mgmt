@@ -1,4 +1,10 @@
 ---
+# Privilege escalation - login as your personal user, sudo to root for tasks
+# that need it. Run playbooks with --ask-become-pass (or store the password
+# in the vault as vault_become_pass and set ansible_become_pass: "{{ vault_become_pass }}").
+ansible_become: true
+ansible_become_method: sudo
+
 # User that owns all containers. Must already exist on the host with
 # lingering enabled - see PODMAN-README.md for setup.
 containers_user: containers
