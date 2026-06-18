@@ -1,0 +1,117 @@
+---
+- name: Stop traefik if already running
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-traefik.service
+    state: stopped
+  failed_when: false
+
+- name: Look up the containers user's uid (needed for its rootless podman socket path)
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ containers_user }}"
+  register: containers_passwd
+
+- name: Set containers_uid fact
+  ansible.builtin.set_fact:
+    containers_uid: "{{ containers_passwd.ansible_facts.getent_passwd[containers_user][1] }}"
+
+- name: Enable the rootless podman API socket for the containers user
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: podman.socket
+    enabled: true
+    state: started
+
+- name: Enable podman-auto-update timer (picks up patch-level image updates on the pinned tags)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: podman-auto-update.timer
+    enabled: true
+    state: started
+
+- name: Create traefik config/cert directories
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ containers_user }}"
+    group: "{{ containers_user }}"
+    mode: "0700"
+  loop:
+    - /etc/traefik
+    - /etc/traefik/letsencrypt
+
+- name: Pre-create acme.json with the permissions traefik requires (it refuses to start otherwise)
+  become: true
+  ansible.builtin.file:
+    path: /etc/traefik/letsencrypt/acme.json
+    state: touch
+    owner: "{{ containers_user }}"
+    group: "{{ containers_user }}"
+    mode: "0600"
+
+- name: Create the shared edge network (traefik + every app's front end)
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_network:
+    name: edge
+    subnet: "{{ edge_network_subnet }}"
+    state: present
+    recreate: false
+
+- name: Run traefik
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_container:
+    name: traefik
+    image: "{{ traefik_image }}"
+    state: present
+    network:
+      - edge
+    ports:
+      - "80:80"
+      - "443:443"
+      - "2222:2222"
+    volume:
+      - "/run/user/{{ containers_uid }}/podman/podman.sock:/var/run/docker.sock:ro,Z"
+      - "/etc/traefik/letsencrypt:/letsencrypt:Z"
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
+      # Don't auto-expose every container - only ones carrying traefik.enable=true.
+      - "--providers.docker.exposedByDefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.gitssh.address=:2222"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email={{ acme_email }}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--api.dashboard=false"
+      - "--log.level=INFO"
+    label:
+      io.containers.autoupdate: "registry"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      names: true
+      new: true
+
+- name: Start traefik at boot
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-traefik.service
+    enabled: true
+    state: started
+    daemon_reload: true
