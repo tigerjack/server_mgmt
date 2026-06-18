@@ -1,0 +1,20 @@
+---
+- name: Reverse proxy (traefik) - must come first, everything else depends on it
+  hosts: all
+  roles:
+    - traefik
+
+- name: Static landing page
+  hosts: all
+  roles:
+    - static_site
+
+- name: Nextcloud (file storage, at /cloud)
+  hosts: all
+  roles:
+    - nextcloud
+
+- name: Forgejo (git forge, web at /git, ssh on :2222)
+  hosts: all
+  roles:
+    - forgejo

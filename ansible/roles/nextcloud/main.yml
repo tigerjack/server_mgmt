@@ -1,0 +1,178 @@
+---
+- name: Stop nextcloud containers if already running
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: "container-{{ item }}.service"
+    state: stopped
+  loop:
+    - nextcloud
+    - db_nextcloud
+    - valkey_nextcloud
+  failed_when: false
+
+- name: Create podman volumes for nextcloud
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_volume:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - nextcloud-data
+    - nextcloud-config
+    - nextcloud-db
+    - nextcloud-valkey
+
+- name: Create nextcloud's internal database network
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_network:
+    name: mariadb-nextcloud
+    state: present
+
+- name: Create nextcloud's internal valkey network
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_network:
+    name: valkey-nextcloud
+    state: present
+
+- name: Run nextcloud's mariadb
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_container:
+    name: db_nextcloud
+    image: "{{ nextcloud_db_image }}"
+    state: present
+    command:
+      - "--transaction-isolation=READ-COMMITTED"
+      - "--binlog-format=ROW"
+    volume:
+      - nextcloud-db:/var/lib/mysql:Z
+    network:
+      - mariadb-nextcloud
+    env:
+      MARIADB_ROOT_PASSWORD: "{{ vault_nextcloud_db_root_password }}"
+      MARIADB_DATABASE:      "{{ vault_nextcloud_db_database }}"
+      MARIADB_USER:          "{{ vault_nextcloud_db_user }}"
+      MARIADB_PASSWORD:      "{{ vault_nextcloud_db_password }}"
+      MARIADB_AUTO_UPGRADE:  "true"
+    label:
+      io.containers.autoupdate: "registry"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      names: true
+      new: true
+
+- name: Run valkey for nextcloud session locking and caching
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_container:
+    name: valkey_nextcloud
+    image: "{{ nextcloud_valkey_image }}"
+    state: present
+    command:
+      - "valkey-server"
+      - "--save"
+      - ""        # disable persistence - this is a cache, not a store
+      - "--loglevel"
+      - "warning"
+    volume:
+      - nextcloud-valkey:/data:Z
+    network:
+      - valkey-nextcloud
+    label:
+      io.containers.autoupdate: "registry"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      names: true
+      new: true
+
+- name: Run nextcloud
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_container:
+    name: nextcloud
+    image: "{{ nextcloud_image }}"
+    state: present
+    volume:
+      - nextcloud-data:/var/www/html/data:Z
+      - nextcloud-config:/var/www/html/config:Z
+    network:
+      - edge
+      - mariadb-nextcloud
+      - valkey-nextcloud
+    env:
+      # Database
+      MYSQL_HOST:     "db_nextcloud"
+      MYSQL_DATABASE: "{{ vault_nextcloud_db_database }}"
+      MYSQL_USER:     "{{ vault_nextcloud_db_user }}"
+      MYSQL_PASSWORD: "{{ vault_nextcloud_db_password }}"
+      # Redis-compatible session locking and caching via Valkey
+      REDIS_HOST: "valkey_nextcloud"
+      # Admin account (only used on first install)
+      NEXTCLOUD_ADMIN_USER:     "{{ vault_nextcloud_admin_user }}"
+      NEXTCLOUD_ADMIN_PASSWORD: "{{ vault_nextcloud_admin_password }}"
+      # Tell Nextcloud it lives at /cloud even though Traefik strips
+      # that prefix before forwarding requests. OVERWRITEWEBROOT puts it
+      # back into every URL and redirect Nextcloud generates.
+      OVERWRITEWEBROOT:   "/cloud"
+      OVERWRITEPROTOCOL:  "https"
+      OVERWRITEHOST:      "{{ domain }}"
+      # Trust the Traefik container as a reverse proxy (necessary for
+      # Nextcloud to accept X-Forwarded-* headers and not flag the
+      # setup as "accessed via untrusted domain").
+      TRUSTED_PROXIES: "10.89.0.0/24"
+      NEXTCLOUD_TRUSTED_DOMAINS: "{{ domain }}"
+    label:
+      io.containers.autoupdate: "registry"
+      traefik.enable: "true"
+      traefik.http.routers.nextcloud.entrypoints: "websecure"
+      traefik.http.routers.nextcloud.rule: "Host(`{{ domain }}`) && PathPrefix(`/cloud`)"
+      traefik.http.routers.nextcloud.tls: "true"
+      traefik.http.routers.nextcloud.tls.certresolver: "letsencrypt"
+      # Strip /cloud before forwarding - Nextcloud expects requests at /
+      # and reconstructs /cloud URLs itself via OVERWRITEWEBROOT above.
+      traefik.http.routers.nextcloud.middlewares: "nextcloud-strip"
+      traefik.http.middlewares.nextcloud-strip.stripprefix.prefixes: "/cloud"
+      traefik.http.services.nextcloud.loadbalancer.server.port: "80"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      requires:
+        - container-db_nextcloud.service
+        - container-valkey_nextcloud.service
+        - container-traefik.service
+      names: true
+      new: true
+
+- name: Tune nextcloud systemd start/stop timeouts
+  become: true
+  community.general.ini_file:
+    path: "/home/{{ containers_user }}/.config/systemd/user/container-{{ item.0 }}.service"
+    section: Service
+    option: "{{ item.1 }}"
+    value: 3600
+    mode: "0664"
+    state: present
+    no_extra_spaces: true
+  loop: "{{ ['nextcloud', 'db_nextcloud', 'valkey_nextcloud'] | product(['TimeoutStartSec', 'TimeoutStopSec']) | list }}"
+  loop_control:
+    label: "{{ item.0 }}:{{ item.1 }}"
+
+- name: Start nextcloud containers at boot (db and cache first)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: "container-{{ item }}.service"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - db_nextcloud
+    - valkey_nextcloud
+    - nextcloud

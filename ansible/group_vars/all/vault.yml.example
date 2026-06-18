@@ -1,0 +1,31 @@
+---
+# Copy this file to vault.yml, fill in real values, then encrypt:
+#   ansible-vault encrypt group_vars/all/vault.yml
+#
+# Run playbooks with:
+#   ansible-playbook site.yml --ask-vault-pass
+#   ansible-playbook site.yml --vault-password-file .vault_pass
+
+# Let's Encrypt registration email
+acme_email: "you@example.com"
+
+# Nextcloud database
+vault_nextcloud_db_root_password: "CHANGE_ME"
+vault_nextcloud_db_database:      "nextcloud"
+vault_nextcloud_db_user:          "nextcloud"
+vault_nextcloud_db_password:      "CHANGE_ME"
+
+# Nextcloud admin account (created on first run)
+vault_nextcloud_admin_user:     "admin"
+vault_nextcloud_admin_password: "CHANGE_ME"
+
+# Forgejo database
+vault_forgejo_db_root_password: "CHANGE_ME"
+vault_forgejo_db_database:      "forgejo"
+vault_forgejo_db_user:          "forgejo"
+vault_forgejo_db_password:      "CHANGE_ME"
+
+# Forgejo admin account (created on first run via `forgejo admin user create`)
+vault_forgejo_admin_user:     "admin"
+vault_forgejo_admin_password: "CHANGE_ME"
+vault_forgejo_admin_email:    "you@example.com"

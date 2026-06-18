@@ -1,0 +1,69 @@
+---
+- name: Stop static site if already running
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-static-site.service
+    state: stopped
+  failed_when: false
+
+- name: Create directory for the landing page content
+  become: true
+  ansible.builtin.file:
+    path: /etc/static-site/html
+    state: directory
+    owner: "{{ containers_user }}"
+    group: "{{ containers_user }}"
+    mode: "0755"
+
+- name: Deploy the landing page content
+  become: true
+  ansible.builtin.copy:
+    src: site/
+    dest: /etc/static-site/html/
+    owner: "{{ containers_user }}"
+    group: "{{ containers_user }}"
+    mode: "0644"
+    directory_mode: "0755"
+
+- name: Run the static site container
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_container:
+    name: static-site
+    image: "{{ static_site_image }}"
+    state: present
+    network:
+      - edge
+    volume:
+      - /etc/static-site/html:/usr/share/nginx/html:ro,Z
+    label:
+      io.containers.autoupdate: "registry"
+      traefik.enable: "true"
+      traefik.http.routers.static-site.entrypoints: "websecure"
+      # No PathPrefix here - it's the catch-all. Traefik ranks routers by
+      # rule specificity automatically, so /cloud and /git (longer, more
+      # specific rules) are matched first; everything else falls through
+      # to this one.
+      traefik.http.routers.static-site.rule: "Host(`{{ domain }}`)"
+      traefik.http.routers.static-site.tls: "true"
+      traefik.http.routers.static-site.tls.certresolver: "letsencrypt"
+      traefik.http.services.static-site.loadbalancer.server.port: "80"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      requires:
+        - container-traefik.service
+      names: true
+      new: true
+
+- name: Start the static site at boot
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-static-site.service
+    enabled: true
+    state: started
+    daemon_reload: true

@@ -1,5 +1,0 @@
----
-- name: Reload podman registries
-  ansible.builtin.command: podman system reset --force
-  changed_when: false
-  # Soft reload - just informational, containers will pick up on next start
