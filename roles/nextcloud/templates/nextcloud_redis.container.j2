@@ -1,0 +1,39 @@
+# Nextcloud Redis Podman Quadlet container unit
+# Managed by Ansible - do not edit manually
+# Location: /etc/containers/systemd/nextcloud_redis.container
+
+[Unit]
+Description=Nextcloud Redis Cache
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image={{ nextcloud_redis_image }}
+ContainerName={{ nextcloud_redis_container_name }}
+
+# Persistent storage (for AOF/RDB persistence)
+Volume={{ nextcloud_redis_dir }}:/data:z
+
+# Network
+Network={{ podman_network_name }}.network
+
+# Redis configuration
+{% if nextcloud_redis_password %}
+Exec=redis-server --requirepass {{ nextcloud_redis_password }} --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+{% else %}
+Exec=redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+{% endif %}
+
+# Resource limits
+PodmanArgs=--memory=192m
+
+# Traefik: do not route redis traffic
+Label=traefik.enable=false
+
+[Service]
+Restart=always
+RestartSec=5s
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target default.target

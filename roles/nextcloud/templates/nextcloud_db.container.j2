@@ -1,0 +1,46 @@
+# Nextcloud MariaDB Podman Quadlet container unit
+# Managed by Ansible - do not edit manually
+# Location: /etc/containers/systemd/nextcloud_db.container
+
+[Unit]
+Description=Nextcloud MariaDB Database
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image={{ nextcloud_db_image }}
+ContainerName={{ nextcloud_db_container_name }}
+
+# Persistent storage
+Volume={{ nextcloud_db_dir }}:/var/lib/mysql:z
+
+# Network
+Network={{ podman_network_name }}.network
+
+# Environment variables
+Environment=MYSQL_ROOT_PASSWORD={{ nextcloud_db_root_password }}
+Environment=MYSQL_DATABASE={{ nextcloud_db_name }}
+Environment=MYSQL_USER={{ nextcloud_db_user }}
+Environment=MYSQL_PASSWORD={{ nextcloud_db_password }}
+Environment=MARIADB_AUTO_UPGRADE=1
+Environment=MARIADB_DISABLE_UPGRADE_BACKUP=1
+
+# MariaDB tuning
+Environment=MYSQL_INNODB_BUFFER_POOL_SIZE=256M
+
+# Do not expose MariaDB to host network
+# Internal container-to-container communication only
+
+# Resource limits
+PodmanArgs=--memory=512m
+
+# Traefik: do not route database traffic
+Label=traefik.enable=false
+
+[Service]
+Restart=always
+RestartSec=10s
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target default.target

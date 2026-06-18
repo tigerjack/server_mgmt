@@ -1,0 +1,42 @@
+# Static web nginx Podman Quadlet container unit
+# Managed by Ansible - do not edit manually
+# Location: /etc/containers/systemd/static_web.container
+
+[Unit]
+Description=Static Web Server (nginx)
+After=network-online.target traefik.service
+Requires=traefik.service
+Wants=network-online.target
+
+[Container]
+Image={{ static_web_image }}
+ContainerName={{ static_web_container_name }}
+
+# Bind mounts
+Volume={{ static_web_html_dir }}:/usr/share/nginx/html:ro,z
+Volume={{ container_base_dir }}/static_web/nginx.conf:/etc/nginx/nginx.conf:ro,z
+
+# Network - must be on same network as Traefik
+Network={{ podman_network_name }}.network
+
+# Do NOT publish ports directly - Traefik handles ingress
+# Traefik discovers this container via Docker/Podman provider socket labels
+
+# Traefik labels
+Label=traefik.enable=true
+Label=traefik.http.routers.static-web.rule=Host(`{{ web_domain }}`)
+Label=traefik.http.routers.static-web.entrypoints=websecure
+Label=traefik.http.routers.static-web.tls=true
+Label=traefik.http.routers.static-web.tls.certresolver=letsencrypt
+Label=traefik.http.routers.static-web.middlewares=secure-headers@file,compress@file
+Label=traefik.http.services.static-web.loadbalancer.server.port=80
+Label=traefik.http.services.static-web.loadbalancer.healthcheck.path=/healthz
+Label=traefik.http.services.static-web.loadbalancer.healthcheck.interval=30s
+
+[Service]
+Restart=always
+RestartSec=5s
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target default.target

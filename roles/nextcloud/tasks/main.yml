@@ -1,0 +1,129 @@
+---
+# Nextcloud role - deploys Nextcloud with MariaDB and Redis via Podman quadlets
+
+- name: Create Nextcloud directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ nextcloud_base_dir }}"
+    - "{{ nextcloud_data_dir }}"
+    - "{{ nextcloud_db_dir }}"
+    - "{{ nextcloud_redis_dir }}"
+    - "{{ nextcloud_config_dir }}"
+
+- name: Deploy MariaDB quadlet container unit
+  ansible.builtin.template:
+    src: nextcloud_db.container.j2
+    dest: /etc/containers/systemd/nextcloud_db.container
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Systemd daemon-reload
+    - Restart nextcloud_db
+
+- name: Deploy Redis quadlet container unit
+  ansible.builtin.template:
+    src: nextcloud_redis.container.j2
+    dest: /etc/containers/systemd/nextcloud_redis.container
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Systemd daemon-reload
+    - Restart nextcloud_redis
+
+- name: Deploy Nextcloud quadlet container unit
+  ansible.builtin.template:
+    src: nextcloud.container.j2
+    dest: /etc/containers/systemd/nextcloud.container
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Systemd daemon-reload
+    - Restart nextcloud
+
+- name: Deploy Nextcloud PHP configuration
+  ansible.builtin.template:
+    src: nextcloud-php.ini.j2
+    dest: "{{ nextcloud_config_dir }}/custom-php.ini"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart nextcloud
+
+- name: Flush handlers to ensure daemon-reload runs before enabling services
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start MariaDB service
+  ansible.builtin.systemd:
+    name: nextcloud_db
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for MariaDB to be ready
+  ansible.builtin.wait_for:
+    timeout: 30
+  delegate_to: localhost
+  become: false
+
+- name: Enable and start Redis service
+  ansible.builtin.systemd:
+    name: nextcloud_redis
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Enable and start Nextcloud service
+  ansible.builtin.systemd:
+    name: nextcloud
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for Nextcloud to be reachable
+  ansible.builtin.uri:
+    url: "http://localhost/status.php"
+    # Traefik is the entry point; poll via container network port directly
+    # We use the container IP or wait for the systemd service to settle
+    status_code: [200, 302, 401]
+    validate_certs: false
+  register: nextcloud_status
+  retries: 20
+  delay: 10
+  until: nextcloud_status.status in [200, 302, 401]
+  ignore_errors: true
+
+- name: Configure Nextcloud trusted domains
+  ansible.builtin.command: >
+    podman exec {{ nextcloud_container_name }}
+    php occ config:system:set trusted_domains 0 --value="{{ nextcloud_domain }}"
+  changed_when: true
+  ignore_errors: true
+
+- name: Configure Nextcloud Redis session cache
+  ansible.builtin.command: >
+    podman exec {{ nextcloud_container_name }}
+    php occ config:system:set redis host --value="{{ nextcloud_redis_container_name }}"
+  changed_when: true
+  ignore_errors: true
+
+- name: Configure Nextcloud memcache local
+  ansible.builtin.command: >
+    podman exec {{ nextcloud_container_name }}
+    php occ config:system:set memcache.local --value='\OC\Memcache\APCu'
+  changed_when: true
+  ignore_errors: true
+
+- name: Configure Nextcloud memcache locking with Redis
+  ansible.builtin.command: >
+    podman exec {{ nextcloud_container_name }}
+    php occ config:system:set memcache.locking --value='\OC\Memcache\Redis'
+  changed_when: true
+  ignore_errors: true
