@@ -1,4 +1,15 @@
 ---
+# Rootless Podman cannot bind privileged ports (<1024) without this.
+# Traefik needs 80 and 443 on the host.
+- name: Allow rootless containers to bind ports >= 80
+  become: true
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_unprivileged_port_start
+    value: "80"
+    state: present
+    sysctl_file: /etc/sysctl.d/99-unprivileged-ports.conf
+    reload: true
+
 - name: Stop traefik if already running
   become: true
   become_user: "{{ containers_user }}"
