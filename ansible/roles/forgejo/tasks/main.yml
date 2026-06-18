@@ -155,7 +155,7 @@
   become_user: "{{ containers_user }}"
   ansible.builtin.command:
     cmd: >
-      podman exec forgejo forgejo admin user create
+      podman exec --user git forgejo forgejo admin user create
       --username {{ vault_forgejo_admin_user }}
       --password {{ vault_forgejo_admin_password }}
       --email {{ vault_forgejo_admin_email }}
