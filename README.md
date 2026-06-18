@@ -42,7 +42,7 @@ Fields to fill in:
 |---|---|
 | `ansible_host` | Server IP or resolvable hostname |
 | `ansible_user` | `root` (all servers require root SSH access) |
-| `ansible_ssh_private_key_file` | Path to **your personal SSH key** — the same one you already use to SSH into this server manually (e.g. `~/.ssh/id_ed25519`). No special Ansible key is needed. |
+| `ansible_ssh_private_key_file` | Path to **your personal SSH key** — the same one you already use to SSH into this server manually (e.g. `~/.ssh/id_ed25519`). |
 | `domain` | Your public domain, e.g. `example.com`. All three services live under this one domain. |
 
 One file per server. If a server runs only some services, edit `ansible/site.yml`
