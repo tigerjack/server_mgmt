@@ -10,6 +10,17 @@
     sysctl_file: /etc/sysctl.d/99-unprivileged-ports.conf
     reload: true
 
+- name: Open firewall ports for Traefik
+  become: true
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "80"
+    - "443"
+    - "2222"
+
 - name: Stop traefik if already running
   become: true
   become_user: "{{ containers_user }}"
