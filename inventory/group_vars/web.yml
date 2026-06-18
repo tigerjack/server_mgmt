@@ -1,0 +1,12 @@
+---
+# Variables for the 'web' group (static web servers)
+
+# Static web server
+static_web_image: "docker.io/nginx:alpine"
+static_web_container_name: "static_web"
+static_web_html_dir: "{{ container_base_dir }}/static_web/html"
+
+# Traefik routing labels for the static web container
+# web_domain is set per-host in inventory/hosts.yml
+# Fallback default (override per host)
+web_domain: "www.example.com"

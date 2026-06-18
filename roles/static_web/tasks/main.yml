@@ -1,0 +1,52 @@
+---
+# Static web role - serves a static HTML site via nginx behind Traefik
+
+- name: Create static web directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ container_base_dir }}/static_web"
+    - "{{ static_web_html_dir }}"
+
+- name: Deploy nginx custom configuration
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: "{{ container_base_dir }}/static_web/nginx.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart static_web
+
+- name: Deploy landing page index.html
+  ansible.builtin.template:
+    src: index.html.j2
+    dest: "{{ static_web_html_dir }}/index.html"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart static_web
+
+- name: Deploy static_web quadlet container unit
+  ansible.builtin.template:
+    src: static_web.container.j2
+    dest: /etc/containers/systemd/static_web.container
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Systemd daemon-reload
+    - Restart static_web
+
+- name: Flush handlers to ensure daemon-reload runs before enabling service
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start static_web service
+  ansible.builtin.systemd:
+    name: static_web
+    enabled: true
+    state: started
+    daemon_reload: true

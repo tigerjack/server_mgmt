@@ -1,0 +1,11 @@
+# /etc/containers/registries.conf
+# Managed by Ansible - do not edit manually
+
+[registries.search]
+registries = {{ container_registries_search | to_json }}
+
+[registries.insecure]
+registries = []
+
+[registries.block]
+registries = []

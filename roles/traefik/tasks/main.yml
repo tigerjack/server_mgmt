@@ -1,0 +1,65 @@
+---
+# Traefik role - deploys Traefik v3 via Podman quadlet
+
+- name: Create Traefik directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ container_base_dir }}/traefik"
+    - "{{ container_base_dir }}/traefik/data"
+    - "{{ container_base_dir }}/traefik/logs"
+    - "{{ container_base_dir }}/traefik/config"
+
+- name: Create ACME storage file (must exist before Traefik starts)
+  ansible.builtin.file:
+    path: "{{ container_base_dir }}/traefik/data/acme.json"
+    state: touch
+    owner: root
+    group: root
+    mode: "0600"
+    # touch only if it does not already exist (preserve existing ACME certs)
+    modification_time: preserve
+    access_time: preserve
+
+- name: Deploy Traefik static configuration
+  ansible.builtin.template:
+    src: traefik.yml.j2
+    dest: "{{ container_base_dir }}/traefik/traefik.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart traefik
+
+- name: Deploy Traefik dynamic configuration
+  ansible.builtin.template:
+    src: dynamic.yml.j2
+    dest: "{{ container_base_dir }}/traefik/config/dynamic.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart traefik
+
+- name: Deploy Traefik quadlet container unit
+  ansible.builtin.template:
+    src: traefik.container.j2
+    dest: /etc/containers/systemd/traefik.container
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Systemd daemon-reload
+    - Restart traefik
+
+- name: Flush handlers to ensure daemon-reload runs before enabling service
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start Traefik service
+  ansible.builtin.systemd:
+    name: traefik
+    enabled: true
+    state: started
+    daemon_reload: true

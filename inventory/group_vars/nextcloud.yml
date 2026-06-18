@@ -1,0 +1,39 @@
+---
+# Variables for the 'nextcloud' group
+
+nextcloud_image: "docker.io/nextcloud:latest"
+nextcloud_db_image: "docker.io/mariadb:10.11"
+nextcloud_redis_image: "docker.io/redis:alpine"
+
+nextcloud_container_name: "nextcloud"
+nextcloud_db_container_name: "nextcloud_db"
+nextcloud_redis_container_name: "nextcloud_redis"
+
+# Directory layout on host
+nextcloud_base_dir: "{{ container_base_dir }}/nextcloud"
+nextcloud_data_dir: "{{ nextcloud_base_dir }}/data"
+nextcloud_db_dir: "{{ nextcloud_base_dir }}/db"
+nextcloud_redis_dir: "{{ nextcloud_base_dir }}/redis"
+nextcloud_config_dir: "{{ nextcloud_base_dir }}/config"
+
+# Database configuration
+nextcloud_db_name: "nextcloud"
+nextcloud_db_user: "nextcloud"
+# OVERRIDE THESE with ansible-vault in production!
+nextcloud_db_password: "changeme_nc_db_password"
+nextcloud_db_root_password: "changeme_nc_db_root_password"
+
+# Nextcloud admin credentials
+nextcloud_admin_user: "admin"
+# OVERRIDE with ansible-vault in production!
+nextcloud_admin_password: "changeme_nc_admin_password"
+
+# Nextcloud domain (override per host)
+nextcloud_domain: "cloud.example.com"
+
+# Redis session locking
+nextcloud_redis_password: ""
+
+# PHP memory limit
+nextcloud_php_memory_limit: "512M"
+nextcloud_php_upload_limit: "10G"

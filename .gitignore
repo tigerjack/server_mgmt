@@ -1,0 +1,34 @@
+# Ansible retry files
+*.retry
+
+# Ansible vault password file
+.vault_pass
+.vault_password
+vault_password_file
+
+# Fact cache
+/tmp/ansible_facts_cache/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Secrets - never commit these
+group_vars/*/vault.yml.plaintext
+host_vars/*/vault.yml.plaintext
