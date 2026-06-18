@@ -1,0 +1,52 @@
+# Forgejo Podman Quadlet container unit
+# Managed by Ansible - do not edit manually
+# Location: /etc/containers/systemd/forgejo.container
+
+[Unit]
+Description=Forgejo Git Service
+After=network-online.target forgejo_db.service
+Requires=forgejo_db.service
+Wants=network-online.target
+
+[Container]
+Image={{ forgejo_image }}
+ContainerName={{ forgejo_container_name }}
+
+# Persistent storage
+Volume={{ forgejo_data_dir }}:/data:z
+
+# Network
+Network={{ podman_network_name }}.network
+
+# Expose SSH port for git push/pull (non-standard to avoid conflict with host SSH on 22)
+PublishPort={{ forgejo_ssh_port }}:22
+
+# Environment - Forgejo reads app.ini from /data/gitea/conf/app.ini
+# but we mount our own app.ini directly
+Environment=FORGEJO__database__DB_TYPE=postgres
+Environment=FORGEJO__database__HOST={{ forgejo_db_container_name }}:5432
+Environment=FORGEJO__database__NAME={{ forgejo_db_name }}
+Environment=FORGEJO__database__USER={{ forgejo_db_user }}
+Environment=FORGEJO__database__PASSWD={{ forgejo_db_password }}
+
+# Resource limits
+PodmanArgs=--memory=512m
+
+# Traefik routing labels
+Label=traefik.enable=true
+Label=traefik.http.routers.forgejo.rule=Host(`{{ forgejo_domain }}`)
+Label=traefik.http.routers.forgejo.entrypoints=websecure
+Label=traefik.http.routers.forgejo.tls=true
+Label=traefik.http.routers.forgejo.tls.certresolver=letsencrypt
+Label=traefik.http.routers.forgejo.middlewares=secure-headers@file,compress@file
+Label=traefik.http.services.forgejo.loadbalancer.server.port=3000
+Label=traefik.http.services.forgejo.loadbalancer.healthcheck.path=/api/healthz
+Label=traefik.http.services.forgejo.loadbalancer.healthcheck.interval=30s
+
+[Service]
+Restart=always
+RestartSec=10s
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target default.target

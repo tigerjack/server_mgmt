@@ -1,0 +1,125 @@
+; Forgejo app.ini - main configuration file
+; Managed by Ansible - do not edit manually
+; Documentation: https://forgejo.org/docs/latest/admin/config-cheat-sheet/
+
+APP_NAME = Forgejo
+RUN_MODE = prod
+RUN_USER = git
+
+[server]
+PROTOCOL           = http
+HTTP_ADDR          = 0.0.0.0
+HTTP_PORT          = 3000
+DOMAIN             = {{ forgejo_domain }}
+ROOT_URL           = https://{{ forgejo_domain }}/
+SSH_DOMAIN         = {{ forgejo_domain }}
+SSH_PORT           = {{ forgejo_ssh_port }}
+SSH_LISTEN_PORT    = 22
+DISABLE_SSH        = false
+OFFLINE_MODE       = false
+LFS_START_SERVER   = true
+LFS_JWT_SECRET     = {{ forgejo_jwt_secret }}
+APP_DATA_PATH      = /data/forgejo
+
+[database]
+DB_TYPE   = postgres
+HOST      = {{ forgejo_db_container_name }}:5432
+NAME      = {{ forgejo_db_name }}
+USER      = {{ forgejo_db_user }}
+PASSWD    = {{ forgejo_db_password }}
+SSL_MODE  = disable
+LOG_SQL   = false
+
+[indexer]
+ISSUE_INDEXER_TYPE = bleve
+ISSUE_INDEXER_PATH = /data/forgejo/indexers/issues.bleve
+REPO_INDEXER_ENABLED = true
+REPO_INDEXER_PATH = /data/forgejo/indexers/repos.bleve
+
+[queue]
+TYPE = level
+DATADIR = /data/forgejo/queues
+
+[security]
+INSTALL_LOCK             = true
+SECRET_KEY               = {{ forgejo_secret_key }}
+INTERNAL_TOKEN           = {{ forgejo_internal_token }}
+PASSWORD_HASH_ALGO       = bcrypt
+MIN_PASSWORD_LENGTH      = 12
+PASSWORD_COMPLEXITY      = lower,upper,digit,spec
+
+[service]
+DISABLE_REGISTRATION              = {{ forgejo_disable_registration | lower }}
+REQUIRE_SIGNIN_VIEW               = {{ forgejo_require_signin_view | lower }}
+REGISTER_EMAIL_CONFIRM            = false
+ENABLE_NOTIFY_MAIL                = false
+ALLOW_ONLY_EXTERNAL_REGISTRATION  = false
+ENABLE_CAPTCHA                    = false
+DEFAULT_KEEP_EMAIL_PRIVATE        = true
+DEFAULT_ALLOW_CREATE_ORGANIZATION = true
+DEFAULT_USER_IS_RESTRICTED        = false
+NO_REPLY_ADDRESS                  = noreply@{{ forgejo_domain }}
+
+[mailer]
+ENABLED = false
+
+[cache]
+ENABLED   = true
+ADAPTER   = memory
+INTERVAL  = 60
+HOST      =
+
+[session]
+PROVIDER        = file
+PROVIDER_CONFIG = /data/forgejo/sessions
+COOKIE_SECURE   = true
+COOKIE_NAME     = forgejo_session
+GC_INTERVAL_TIME = 86400
+SESSION_LIFE_TIME = 86400
+
+[picture]
+AVATAR_UPLOAD_PATH      = /data/forgejo/avatars
+REPOSITORY_AVATAR_UPLOAD_PATH = /data/forgejo/repo-avatars
+
+[attachment]
+ENABLED = true
+PATH    = /data/forgejo/attachments
+MAX_SIZE = 100
+MAX_FILES = 10
+
+[log]
+MODE      = console
+LEVEL     = Info
+ROOT_PATH = /data/forgejo/logs
+
+[git]
+PATH = /usr/bin/git
+
+[git.timeout]
+DEFAULT = 360
+MIGRATE = 600
+MIRROR  = 300
+CLONE   = 300
+PULL    = 300
+GC      = 60
+
+[api]
+ENABLE_SWAGGER = true
+MAX_RESPONSE_ITEMS = 50
+DEFAULT_PAGING_NUM = 30
+DEFAULT_GIT_TREES_PER_PAGE = 1000
+DEFAULT_MAX_BLOB_SIZE = 10485760
+
+[oauth2]
+JWT_SECRET = {{ forgejo_jwt_secret }}
+
+[i18n]
+LANGS = en-US
+NAMES = English
+
+[markup]
+ENABLED = true
+
+[other]
+SHOW_FOOTER_VERSION = false
+SHOW_FOOTER_TEMPLATE_LOAD_TIME = false

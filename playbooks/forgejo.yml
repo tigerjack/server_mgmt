@@ -1,0 +1,25 @@
+---
+# Forgejo playbook - deploy/update Forgejo servers only
+# Run: ansible-playbook playbooks/forgejo.yml
+# With vault: ansible-playbook playbooks/forgejo.yml --vault-password-file .vault_pass
+
+- name: Apply common baseline to Forgejo servers
+  hosts: forgejo
+  become: true
+  roles:
+    - role: common
+      tags: [common]
+
+- name: Deploy Traefik on Forgejo servers
+  hosts: forgejo
+  become: true
+  roles:
+    - role: traefik
+      tags: [traefik]
+
+- name: Deploy Forgejo
+  hosts: forgejo
+  become: true
+  roles:
+    - role: forgejo
+      tags: [forgejo]

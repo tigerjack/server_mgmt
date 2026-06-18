@@ -1,0 +1,24 @@
+---
+# Web playbook - deploy/update static web servers only
+# Run: ansible-playbook playbooks/web.yml
+
+- name: Apply common baseline to web servers
+  hosts: web
+  become: true
+  roles:
+    - role: common
+      tags: [common]
+
+- name: Deploy Traefik on web servers
+  hosts: web
+  become: true
+  roles:
+    - role: traefik
+      tags: [traefik]
+
+- name: Deploy static web server
+  hosts: web
+  become: true
+  roles:
+    - role: static_web
+      tags: [web, static_web]
