@@ -1,0 +1,12 @@
+---
+# List your servers here. Each hostname must match a file in host_vars/
+# (e.g. "spqr-project" → host_vars/spqr-project.yml).
+#
+# Add or remove hosts as needed. The variables (IP, domain, SSH key)
+# live in host_vars/<hostname>.yml, not here.
+
+all:
+  hosts:
+    spqr-project:
+    quouskwe-project:
+    # promethence:    # uncomment when ready

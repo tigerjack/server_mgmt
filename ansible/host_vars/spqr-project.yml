@@ -1,12 +1,6 @@
 ---
-# Rename this file to match your server's hostname (e.g. myserver.yml),
-# then fill in real values.
-
-# How Ansible reaches this host
-ansible_host: 131.175.120.38           # IP or resolvable hostname
+ansible_host: 131.175.120.38
 ansible_user: sperriello
-ansible_ssh_private_key_file: ~/.ssh/promethence_2026   # your personal key
+ansible_ssh_private_key_file: ~/.ssh/promethence_2026
 
-# Public domain pointing at this server's IP.
-# Used by Traefik for TLS (Let's Encrypt) and by every app as its base URL.
 domain: "spqr-project.deib.polimi.it"
