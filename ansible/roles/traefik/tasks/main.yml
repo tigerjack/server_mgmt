@@ -102,7 +102,7 @@
       - "443:443"
       - "2222:2222"
     volume:
-      - "/run/user/{{ containers_uid }}/podman/podman.sock:/var/run/docker.sock:ro,Z"
+      - "/run/user/{{ containers_uid }}/podman/podman.sock:/var/run/docker.sock:Z"
       - "/etc/traefik/letsencrypt:/letsencrypt:Z"
     command:
       - "--providers.docker=true"
