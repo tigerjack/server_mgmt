@@ -42,6 +42,7 @@
 - name: Run nextcloud's mariadb
   become: true
   become_user: "{{ containers_user }}"
+  no_log: true
   containers.podman.podman_container:
     name: db_nextcloud
     image: "{{ nextcloud_db_image }}"
@@ -70,6 +71,7 @@
 - name: Run valkey for nextcloud session locking and caching
   become: true
   become_user: "{{ containers_user }}"
+  no_log: true
   containers.podman.podman_container:
     name: valkey_nextcloud
     image: "{{ nextcloud_valkey_image }}"
@@ -95,6 +97,7 @@
 - name: Run nextcloud
   become: true
   become_user: "{{ containers_user }}"
+  no_log: true
   containers.podman.podman_container:
     name: nextcloud
     image: "{{ nextcloud_image }}"
@@ -196,7 +199,7 @@
     section: Service
     option: "{{ item.1 }}"
     value: 3600
-    mode: "0664"
+    mode: "0644"
     state: present
     no_extra_spaces: true
   loop: "{{ ['nextcloud', 'db_nextcloud', 'valkey_nextcloud'] | product(['TimeoutStartSec', 'TimeoutStopSec']) | list }}"

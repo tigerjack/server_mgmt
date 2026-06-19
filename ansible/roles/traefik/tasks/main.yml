@@ -69,6 +69,16 @@
   loop:
     - /etc/traefik
     - /etc/traefik/letsencrypt
+    - /etc/traefik/conf.d
+
+- name: Deploy traefik static middleware configuration
+  become: true
+  ansible.builtin.copy:
+    src: security-headers.yml
+    dest: /etc/traefik/conf.d/security-headers.yml
+    owner: "{{ containers_user }}"
+    group: "{{ containers_user }}"
+    mode: "0600"
 
 - name: Pre-create acme.json with the permissions traefik requires (it refuses to start otherwise)
   become: true
@@ -104,6 +114,7 @@
     volume:
       - "/run/user/{{ containers_uid }}/podman/podman.sock:/var/run/docker.sock:Z"
       - "/etc/traefik/letsencrypt:/letsencrypt:Z"
+      - "/etc/traefik/conf.d:/conf.d:ro,Z"
     command:
       - "--providers.docker=true"
       - "--providers.docker.endpoint=unix:///var/run/docker.sock"
@@ -118,6 +129,10 @@
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
       - "--certificatesresolvers.letsencrypt.acme.email={{ acme_email }}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--providers.file.directory=/conf.d"
+      - "--providers.file.watch=true"
+      # Apply security headers to every HTTPS response globally.
+      - "--entrypoints.websecure.http.middlewares=security-headers@file"
       - "--api.dashboard=false"
       - "--log.level=INFO"
     label:

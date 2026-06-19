@@ -11,6 +11,7 @@
 - name: Run EuroOffice Document Server
   become: true
   become_user: "{{ containers_user }}"
+  no_log: true
   containers.podman.podman_container:
     name: eurooffice-ds
     image: "{{ eurooffice_ds_image }}"

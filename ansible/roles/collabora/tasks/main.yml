@@ -11,6 +11,7 @@
 - name: Run Collabora Online (CODE) for Nextcloud Office
   become: true
   become_user: "{{ containers_user }}"
+  no_log: true
   containers.podman.podman_container:
     name: collabora
     image: "{{ collabora_image }}"

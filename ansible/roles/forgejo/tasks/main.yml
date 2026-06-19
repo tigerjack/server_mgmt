@@ -32,6 +32,7 @@
 - name: Run forgejo's mariadb
   become: true
   become_user: "{{ containers_user }}"
+  no_log: true
   containers.podman.podman_container:
     name: db_forgejo
     image: "{{ forgejo_db_image }}"
@@ -67,6 +68,7 @@
 - name: Run forgejo
   become: true
   become_user: "{{ containers_user }}"
+  no_log: true
   containers.podman.podman_container:
     name: forgejo
     image: "{{ forgejo_image }}"
@@ -142,7 +144,7 @@
     section: Service
     option: "{{ item.1 }}"
     value: 3600
-    mode: "0664"
+    mode: "0644"
     state: present
     no_extra_spaces: true
   loop: "{{ ['forgejo', 'db_forgejo'] | product(['TimeoutStartSec', 'TimeoutStopSec']) | list }}"
@@ -165,6 +167,7 @@
 - name: Ensure forgejo has an admin account (no-op once it already exists)
   become: true
   become_user: "{{ containers_user }}"
+  no_log: true
   ansible.builtin.command:
     cmd: >
       podman exec --user git forgejo forgejo admin user create
