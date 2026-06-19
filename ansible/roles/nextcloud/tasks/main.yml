@@ -210,29 +210,42 @@
     enabled: true
     state: started
 
-- name: Install Nextcloud Talk
+- name: Install Nextcloud apps from the app store
   become: true
   become_user: "{{ containers_user }}"
   ansible.builtin.command:
-    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:install spreed
-  register: talk_install
-  changed_when: "'installed' in talk_install.stdout"
-  failed_when: talk_install.rc != 0 and 'already installed' not in talk_install.stdout
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:install {{ item }}
+  register: nc_app_install
+  changed_when: "'installed' in nc_app_install.stdout"
+  failed_when: nc_app_install.rc != 0 and 'already installed' not in nc_app_install.stdout
   retries: 5
   delay: 10
-  until: talk_install.rc == 0 or 'already installed' in talk_install.stdout
+  until: nc_app_install.rc == 0 or 'already installed' in nc_app_install.stdout
+  loop:
+    - spreed          # Talk
+    - richdocuments   # Nextcloud Office / Collabora connector
+    - contacts
+    - contactsinteraction
 
-- name: Install Nextcloud Office app (Collabora connector)
+- name: Enable bundled Nextcloud apps (shipped with NC but disabled by default)
   become: true
   become_user: "{{ containers_user }}"
   ansible.builtin.command:
-    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:install richdocuments
-  register: richdocuments_install
-  changed_when: "'installed' in richdocuments_install.stdout"
-  failed_when: richdocuments_install.rc != 0 and 'already installed' not in richdocuments_install.stdout
-  retries: 5
-  delay: 10
-  until: richdocuments_install.rc == 0 or 'already installed' in richdocuments_install.stdout
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:enable {{ item }}
+  changed_when: true
+  failed_when: false
+  loop:
+    - encryption     # Default encryption module
+
+- name: Disable unwanted bundled apps
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:disable {{ item }}
+  changed_when: true
+  failed_when: false
+  loop:
+    - photos
 
 - name: Point Nextcloud Office at the Collabora server
   become: true
