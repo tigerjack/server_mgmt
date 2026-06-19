@@ -53,10 +53,21 @@
     generate_systemd:
       path: "/home/{{ containers_user }}/.config/systemd/user/"
       restart_policy: on-failure
-      requires:
-        - container-traefik.service
       names: true
       new: true
+
+- name: Add boot-ordering dependency on traefik to static-site unit (no cascade stop)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.lineinfile:
+    path: "/home/{{ containers_user }}/.config/systemd/user/container-static-site.service"
+    regexp: "^{{ item.key }}=container-traefik\\.service"
+    line: "{{ item.key }}=container-traefik.service"
+    insertbefore: "^\\[Service\\]"
+    state: present
+  loop:
+    - {key: Wants}
+    - {key: After}
 
 - name: Start the static site at boot
   become: true

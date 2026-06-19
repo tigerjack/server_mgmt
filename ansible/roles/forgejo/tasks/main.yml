@@ -118,9 +118,21 @@
       restart_policy: on-failure
       requires:
         - container-db_forgejo.service
-        - container-traefik.service
       names: true
       new: true
+
+- name: Add boot-ordering dependency on traefik to forgejo unit (no cascade stop)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.lineinfile:
+    path: "/home/{{ containers_user }}/.config/systemd/user/container-forgejo.service"
+    regexp: "^{{ item.key }}=container-traefik\\.service"
+    line: "{{ item.key }}=container-traefik.service"
+    insertbefore: "^\\[Service\\]"
+    state: present
+  loop:
+    - {key: Wants}
+    - {key: After}
 
 - name: Tune forgejo systemd start/stop timeouts
   become: true

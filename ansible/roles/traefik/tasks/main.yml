@@ -137,3 +137,7 @@
     enabled: true
     state: started
     daemon_reload: true
+  register: traefik_start
+  retries: 5
+  delay: 5
+  until: traefik_start is success
