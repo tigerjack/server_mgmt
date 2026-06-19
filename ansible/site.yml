@@ -19,7 +19,12 @@
   roles:
     - forgejo
 
-- name: EuroOffice Document Server (Nextcloud Office backend)
+- name: Collabora Online (secondary document server)
+  hosts: all
+  roles:
+    - collabora
+
+- name: EuroOffice Document Server (primary document server)
   hosts: all
   roles:
     - eurooffice

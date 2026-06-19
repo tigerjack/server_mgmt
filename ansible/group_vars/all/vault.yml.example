@@ -30,5 +30,11 @@ vault_forgejo_admin_user:     "admin"
 vault_forgejo_admin_password: "CHANGE_ME"
 vault_forgejo_admin_email:    "you@example.com"
 
-# EuroOffice Document Server JWT secret (shared between the container and the Nextcloud app)
+# Collabora Online admin credentials (for the /lool/adminws admin panel)
+vault_collabora_admin_user:     "admin"
+vault_collabora_admin_password: "CHANGE_ME"
+
+# EuroOffice Document Server — JWT secret shared between the container and the Nextcloud app.
+# No separate admin user/password; the docker run command only requires JWT_SECRET.
+# Generate with: openssl rand -hex 32
 vault_eurooffice_jwt_secret: "CHANGE_ME"
