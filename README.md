@@ -148,8 +148,8 @@ env var.
 ### `forgejo`
 
 Two containers: Forgejo app and its own MariaDB instance. Mounted at `/git`
-with the prefix left intact — Forgejo knows it's at `/git` via `ROOT_URL` in
-`app.ini` and does not need the path stripped.
+via Traefik's StripPrefix middleware — Forgejo receives requests at `/` and
+reconstructs `/git` URLs itself via `ROOT_URL` in `app.ini`.
 
 SSH git access is on port 2222 (TCP-forwarded through Traefik):
 
@@ -193,9 +193,11 @@ complete, then repeat for the next major version.
 ## Repository structure
 
 ```
+deploy.sh                  # Convenience wrapper around ansible-playbook
 ansible/
-  ansible.cfg              # Ansible configuration
-  site.yml                 # Master playbook (runs all roles)
+  ansible.cfg              # Ansible configuration (sets inventory = inventory.yml)
+  inventory.yml            # Host list — add your servers here
+  site.yml                 # Master playbook (runs all roles in order)
   group_vars/all/
     vars.yml               # Image tags and shared non-secret config
     vault.yml.example      # Template for secrets (copy → vault.yml, encrypt)
@@ -204,11 +206,11 @@ ansible/
     example-server.yml     # Template for per-server config (copy and rename)
     <your-server>.yml      # One file per managed server
   roles/
-    traefik/main.yml       # Reverse proxy + TLS
-    static_site/main.yml   # Landing page (nginx)
+    traefik/tasks/main.yml       # Reverse proxy + TLS
+    static_site/tasks/main.yml   # Landing page (nginx)
     static_site/files/site/index.html   # Landing page HTML - edit freely
-    nextcloud/main.yml     # Nextcloud + MariaDB + Valkey
-    forgejo/main.yml       # Forgejo + MariaDB
+    nextcloud/tasks/main.yml     # Nextcloud + MariaDB + Valkey
+    forgejo/tasks/main.yml       # Forgejo + MariaDB
 README.md                  # This file
 PODMAN-README.md           # One-time host setup (rootless Podman + containers user)
 ```
