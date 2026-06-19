@@ -106,6 +106,7 @@
       FORGEJO__server__ROOT_URL: "https://{{ domain }}/git/"
       FORGEJO__server__SSH_DOMAIN: "{{ domain }}"
       FORGEJO__server__SSH_PORT: "2222"
+      FORGEJO__server__SSH_LISTEN_PORT: "2222"
       FORGEJO__server__START_SSH_SERVER: "true"
       # Database is fully configured above, so skip the web installer
       # entirely rather than leaving the instance sitting unconfigured.
