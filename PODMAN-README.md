@@ -48,7 +48,7 @@ apt autoremove -y
 
 ```sh
 apt update
-apt install -y podman uidmap slirp4netns fuse-overlayfs dbus-user-session
+apt install -y podman uidmap slirp4netns fuse-overlayfs dbus-user-session acl
 ```
 
 - `uidmap` provides `newuidmap`/`newgidmap`, required for rootless user
@@ -61,6 +61,9 @@ apt install -y podman uidmap slirp4netns fuse-overlayfs dbus-user-session
   `systemctl --user ...` fails with "Failed to connect to bus" - which
   is exactly what the ansible playbook uses to manage each container's
   service.
+- `acl` provides `setfacl`, which Ansible needs when `become_user` targets
+  an unprivileged user like `containers`. Without it you get
+  `chmod: invalid mode: 'A+user:containers:rx:allow'` errors.
 
 Confirm it installed and note the version - the two hosts are on
 different Ubuntu releases (matching the kernel versions you mentioned),
