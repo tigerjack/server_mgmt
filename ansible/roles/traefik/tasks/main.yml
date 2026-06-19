@@ -95,9 +95,9 @@
     name: traefik
     image: "{{ traefik_image }}"
     state: present
-    networks:
-      - name: edge
-        ip: "10.89.0.2"
+    network:
+      - edge
+    ip: "10.89.0.2"
     ports:
       - "80:80"
       - "443:443"
