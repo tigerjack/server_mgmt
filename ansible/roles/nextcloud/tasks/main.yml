@@ -107,6 +107,11 @@
       - edge
       - mariadb-nextcloud
       - valkey-nextcloud
+    # Map the public domain to Traefik's fixed edge-network IP so Nextcloud's
+    # self-checks (WebDAV, heartbeat, JS modules) can reach themselves via the
+    # internal path rather than hairpin-NATing through the public interface.
+    etc_hosts:
+      "{{ domain }}": "10.89.0.2"
     env:
       # Database
       MYSQL_HOST:     "db_nextcloud"
@@ -141,6 +146,22 @@
       traefik.http.routers.nextcloud.middlewares: "nextcloud-strip"
       traefik.http.middlewares.nextcloud-strip.stripprefix.prefixes: "/cloud"
       traefik.http.services.nextcloud.loadbalancer.server.port: "80"
+      # Federation discovery endpoints live at the domain root (not under /cloud).
+      # Route them to Nextcloud without stripping - Apache handles them natively.
+      traefik.http.routers.nextcloud-providers.entrypoints: "websecure"
+      traefik.http.routers.nextcloud-providers.rule: "Host(`{{ domain }}`) && (PathPrefix(`/ocm-provider`) || PathPrefix(`/ocs-provider`))"
+      traefik.http.routers.nextcloud-providers.tls: "true"
+      traefik.http.routers.nextcloud-providers.tls.certresolver: "letsencrypt"
+      traefik.http.routers.nextcloud-providers.service: "nextcloud"
+      # notify_push daemon (Client Push) listens on port 7867 inside the container.
+      traefik.http.routers.nextcloud-push.entrypoints: "websecure"
+      traefik.http.routers.nextcloud-push.rule: "Host(`{{ domain }}`) && PathPrefix(`/cloud/push`)"
+      traefik.http.routers.nextcloud-push.tls: "true"
+      traefik.http.routers.nextcloud-push.tls.certresolver: "letsencrypt"
+      traefik.http.routers.nextcloud-push.middlewares: "nextcloud-push-strip"
+      traefik.http.middlewares.nextcloud-push-strip.stripprefix.prefixes: "/cloud/push"
+      traefik.http.routers.nextcloud-push.service: "nextcloud-push"
+      traefik.http.services.nextcloud-push.loadbalancer.server.port: "7867"
     generate_systemd:
       path: "/home/{{ containers_user }}/.config/systemd/user/"
       restart_policy: on-failure
@@ -247,6 +268,24 @@
   failed_when: false
   loop:
     - photos
+
+- name: Enable notify_push (Client Push — bundled with Nextcloud, disabled by default)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:enable notify_push
+  changed_when: true
+  failed_when: false
+
+- name: Configure notify_push endpoint
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user www-data nextcloud php /var/www/html/occ
+      notify_push:setup https://{{ domain }}/cloud/push
+  changed_when: true
+  failed_when: false
 
 - name: Configure EuroOffice document server connection (primary editor)
   become: true
