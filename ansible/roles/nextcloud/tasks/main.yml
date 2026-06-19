@@ -19,6 +19,7 @@
     name: "{{ item }}"
     state: present
   loop:
+    - nextcloud-html
     - nextcloud-data
     - nextcloud-config
     - nextcloud-db
@@ -99,6 +100,7 @@
     image: "{{ nextcloud_image }}"
     state: present
     volume:
+      - nextcloud-html:/var/www/html:Z
       - nextcloud-data:/var/www/html/data:Z
       - nextcloud-config:/var/www/html/config:Z
     network:
