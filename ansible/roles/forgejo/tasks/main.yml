@@ -80,13 +80,12 @@
     label:
       io.containers.autoupdate: "registry"
       traefik.enable: "true"
-      # Forgejo expects the reverse proxy to forward the path AS-IS
-      # (unlike nextcloud) - it relies on ROOT_URL below to know it's
-      # mounted under /git, so there's no stripprefix middleware here.
       traefik.http.routers.forgejo.entrypoints: "websecure"
       traefik.http.routers.forgejo.rule: "Host(`{{ domain }}`) && PathPrefix(`/git`)"
       traefik.http.routers.forgejo.tls: "true"
       traefik.http.routers.forgejo.tls.certresolver: "letsencrypt"
+      traefik.http.routers.forgejo.middlewares: "forgejo-strip"
+      traefik.http.middlewares.forgejo-strip.stripprefix.prefixes: "/git"
       traefik.http.services.forgejo.loadbalancer.server.port: "3000"
       # Plain TCP passthrough for git-over-ssh on the dedicated gitssh
       # entrypoint (:2222) defined in the traefik role. HostSNI(`*`) is
