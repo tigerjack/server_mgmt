@@ -175,7 +175,7 @@
   loop_control:
     label: "{{ item.0 }}:{{ item.1 }}"
 
-- name: Start nextcloud containers at boot (db and cache first)
+- name: Start nextcloud db and cache first
   become: true
   become_user: "{{ containers_user }}"
   ansible.builtin.systemd:
@@ -187,4 +187,23 @@
   loop:
     - db_nextcloud
     - valkey_nextcloud
-    - nextcloud
+
+- name: Wait for nextcloud MariaDB to be ready before starting nextcloud
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec db_nextcloud mysqladmin ping -h localhost --silent
+  register: nc_db_ping
+  retries: 30
+  delay: 3
+  until: nc_db_ping.rc == 0
+  changed_when: false
+
+- name: Start nextcloud
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-nextcloud.service
+    enabled: true
+    state: started
