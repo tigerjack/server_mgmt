@@ -161,5 +161,9 @@
       --email {{ vault_forgejo_admin_email }}
       --admin --must-change-password=false
   register: forgejo_admin_create
+  # Retry to give MariaDB time to finish starting up
+  retries: 10
+  delay: 6
+  until: forgejo_admin_create.rc == 0 or 'already exists' in forgejo_admin_create.stderr
   changed_when: "'already exists' not in forgejo_admin_create.stderr"
   failed_when: forgejo_admin_create.rc != 0 and 'already exists' not in forgejo_admin_create.stderr
