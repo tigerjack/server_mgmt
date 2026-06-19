@@ -20,7 +20,7 @@
 - name: Deploy the landing page content
   become: true
   ansible.builtin.copy:
-    src: site/
+    src: "{{ static_site_dir }}/"
     dest: /etc/static-site/html/
     owner: "{{ containers_user }}"
     group: "{{ containers_user }}"
