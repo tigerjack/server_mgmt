@@ -192,7 +192,7 @@
   become: true
   become_user: "{{ containers_user }}"
   ansible.builtin.command:
-    cmd: podman exec db_nextcloud mysqladmin ping -h localhost --silent
+    cmd: podman exec db_nextcloud mariadb-admin ping -h localhost --silent
   register: nc_db_ping
   retries: 30
   delay: 3
