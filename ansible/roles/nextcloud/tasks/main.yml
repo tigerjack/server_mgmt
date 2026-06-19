@@ -107,11 +107,6 @@
       - edge
       - mariadb-nextcloud
       - valkey-nextcloud
-    # Map the public domain to Traefik's fixed edge-network IP so Nextcloud's
-    # self-checks (WebDAV, heartbeat, JS modules) can reach themselves via the
-    # internal path rather than hairpin-NATing through the public interface.
-    etc_hosts:
-      "{{ domain }}": "10.89.0.2"
     env:
       # Database
       MYSQL_HOST:     "db_nextcloud"

@@ -97,7 +97,6 @@
     state: present
     network:
       - edge
-    ip: "10.89.0.2"
     ports:
       - "80:80"
       - "443:443"
