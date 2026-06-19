@@ -143,11 +143,18 @@
       traefik.http.services.nextcloud.loadbalancer.server.port: "80"
       # Federation discovery endpoints live at the domain root (not under /cloud).
       # Route them to Nextcloud without stripping - Apache handles them natively.
-      traefik.http.routers.nextcloud-providers.entrypoints: "websecure"
-      traefik.http.routers.nextcloud-providers.rule: "Host(`{{ domain }}`) && (PathPrefix(`/ocm-provider`) || PathPrefix(`/ocs-provider`))"
-      traefik.http.routers.nextcloud-providers.tls: "true"
-      traefik.http.routers.nextcloud-providers.tls.certresolver: "letsencrypt"
-      traefik.http.routers.nextcloud-providers.service: "nextcloud"
+      # Split into two routers to avoid || in label values (Traefik rejects the
+      # entire container's labels if any rule fails to parse).
+      traefik.http.routers.nextcloud-ocm.entrypoints: "websecure"
+      traefik.http.routers.nextcloud-ocm.rule: "Host(`{{ domain }}`) && PathPrefix(`/ocm-provider`)"
+      traefik.http.routers.nextcloud-ocm.tls: "true"
+      traefik.http.routers.nextcloud-ocm.tls.certresolver: "letsencrypt"
+      traefik.http.routers.nextcloud-ocm.service: "nextcloud"
+      traefik.http.routers.nextcloud-ocs.entrypoints: "websecure"
+      traefik.http.routers.nextcloud-ocs.rule: "Host(`{{ domain }}`) && PathPrefix(`/ocs-provider`)"
+      traefik.http.routers.nextcloud-ocs.tls: "true"
+      traefik.http.routers.nextcloud-ocs.tls.certresolver: "letsencrypt"
+      traefik.http.routers.nextcloud-ocs.service: "nextcloud"
       # notify_push daemon (Client Push) listens on port 7867 inside the container.
       traefik.http.routers.nextcloud-push.entrypoints: "websecure"
       traefik.http.routers.nextcloud-push.rule: "Host(`{{ domain }}`) && PathPrefix(`/cloud/push`)"
