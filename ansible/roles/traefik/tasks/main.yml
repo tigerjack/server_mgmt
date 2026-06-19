@@ -118,9 +118,8 @@
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
       - "--certificatesresolvers.letsencrypt.acme.email={{ acme_email }}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-      - "--api=true"
-      - "--api.insecure=true"
-      - "--log.level=DEBUG"
+      - "--api.dashboard=false"
+      - "--log.level=INFO"
     label:
       io.containers.autoupdate: "registry"
     generate_systemd:
