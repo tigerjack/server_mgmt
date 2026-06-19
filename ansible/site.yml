@@ -19,6 +19,11 @@
   roles:
     - forgejo
 
+- name: Collabora Online (Nextcloud Office document server)
+  hosts: all
+  roles:
+    - collabora
+
 - name: Restart Traefik so it queries all containers after they are all up
   hosts: all
   become: true

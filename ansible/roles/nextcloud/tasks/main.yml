@@ -209,3 +209,36 @@
     name: container-nextcloud.service
     enabled: true
     state: started
+
+- name: Install Nextcloud Talk
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:install spreed
+  register: talk_install
+  changed_when: "'installed' in talk_install.stdout"
+  failed_when: talk_install.rc != 0 and 'already installed' not in talk_install.stdout
+  retries: 5
+  delay: 10
+  until: talk_install.rc == 0 or 'already installed' in talk_install.stdout
+
+- name: Install Nextcloud Office app (Collabora connector)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:install richdocuments
+  register: richdocuments_install
+  changed_when: "'installed' in richdocuments_install.stdout"
+  failed_when: richdocuments_install.rc != 0 and 'already installed' not in richdocuments_install.stdout
+  retries: 5
+  delay: 10
+  until: richdocuments_install.rc == 0 or 'already installed' in richdocuments_install.stdout
+
+- name: Point Nextcloud Office at the Collabora server
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user www-data nextcloud php /var/www/html/occ
+      config:app:set richdocuments wopi_url --value="https://{{ domain }}"
+  changed_when: true
