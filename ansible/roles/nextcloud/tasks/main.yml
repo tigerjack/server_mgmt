@@ -223,7 +223,7 @@
   until: nc_app_install.rc == 0 or 'already installed' in nc_app_install.stdout
   loop:
     - spreed          # Talk
-    - richdocuments   # Nextcloud Office / Collabora connector
+    - eurooffice      # EuroOffice document editor (ONLYOFFICE fork)
     - contacts
     - contactsinteraction
 
@@ -247,14 +247,17 @@
   loop:
     - photos
 
-- name: Point Nextcloud Office at the Collabora server
+- name: Point EuroOffice at the document server
   become: true
   become_user: "{{ containers_user }}"
   ansible.builtin.command:
     cmd: >
       podman exec --user www-data nextcloud php /var/www/html/occ
-      config:app:set richdocuments wopi_url --value="https://{{ domain }}"
+      config:app:set eurooffice DocumentServerUrl --value="https://{{ domain }}/eurooffice-ds/"
   changed_when: true
+  # TODO: update the URL once the EuroOffice Document Server container image is known.
+  # The collabora role still starts a Collabora container as a placeholder;
+  # replace it with the EuroOffice document server container when available.
 
 # System config
 - name: Configure Nextcloud system settings
