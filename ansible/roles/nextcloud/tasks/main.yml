@@ -139,6 +139,9 @@
       # Strip /cloud before forwarding - Nextcloud expects requests at /
       # and reconstructs /cloud URLs itself via OVERWRITEWEBROOT above.
       traefik.http.routers.nextcloud.middlewares: "nextcloud-strip"
+      # Explicit service binding required when multiple services are defined on
+      # the same container - Traefik v3 refuses to auto-link in that case.
+      traefik.http.routers.nextcloud.service: "nextcloud"
       traefik.http.middlewares.nextcloud-strip.stripprefix.prefixes: "/cloud"
       traefik.http.services.nextcloud.loadbalancer.server.port: "80"
       # Federation discovery endpoints live at the domain root (not under /cloud).
