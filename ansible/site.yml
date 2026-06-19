@@ -19,10 +19,10 @@
   roles:
     - forgejo
 
-- name: Collabora Online (Nextcloud Office document server)
+- name: EuroOffice Document Server (Nextcloud Office backend)
   hosts: all
   roles:
-    - collabora
+    - eurooffice
 
 - name: Restart Traefik so it queries all containers after they are all up
   hosts: all

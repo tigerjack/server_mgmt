@@ -247,17 +247,19 @@
   loop:
     - photos
 
-- name: Point EuroOffice at the document server
+- name: Configure EuroOffice document server connection
   become: true
   become_user: "{{ containers_user }}"
   ansible.builtin.command:
     cmd: >
       podman exec --user www-data nextcloud php /var/www/html/occ
-      config:app:set eurooffice DocumentServerUrl --value="https://{{ domain }}/eurooffice-ds/"
+      config:app:set eurooffice {{ item.key }} --value="{{ item.value }}"
   changed_when: true
-  # TODO: update the URL once the EuroOffice Document Server container image is known.
-  # The collabora role still starts a Collabora container as a placeholder;
-  # replace it with the EuroOffice document server container when available.
+  loop:
+    - {key: DocumentServerUrl, value: "https://{{ domain }}/eurooffice-ds/"}
+    - {key: jwt_secret,        value: "{{ vault_eurooffice_jwt_secret }}"}
+  loop_control:
+    label: "eurooffice.{{ item.key }}"
 
 # System config
 - name: Configure Nextcloud system settings

@@ -30,6 +30,5 @@ vault_forgejo_admin_user:     "admin"
 vault_forgejo_admin_password: "CHANGE_ME"
 vault_forgejo_admin_email:    "you@example.com"
 
-# Collabora Online admin credentials (for the /lool/adminws admin panel)
-vault_collabora_admin_user:     "admin"
-vault_collabora_admin_password: "CHANGE_ME"
+# EuroOffice Document Server JWT secret (shared between the container and the Nextcloud app)
+vault_eurooffice_jwt_secret: "CHANGE_ME"

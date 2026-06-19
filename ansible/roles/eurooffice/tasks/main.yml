@@ -1,0 +1,61 @@
+---
+- name: Stop EuroOffice Document Server if already running
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-eurooffice-ds.service
+    state: stopped
+  failed_when: false
+
+- name: Run EuroOffice Document Server
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_container:
+    name: eurooffice-ds
+    image: "{{ eurooffice_ds_image }}"
+    state: present
+    network:
+      - edge
+    env:
+      JWT_ENABLED: "true"
+      JWT_SECRET: "{{ vault_eurooffice_jwt_secret }}"
+    label:
+      io.containers.autoupdate: "registry"
+      traefik.enable: "true"
+      traefik.http.routers.eurooffice-ds.entrypoints: "websecure"
+      traefik.http.routers.eurooffice-ds.rule: "Host(`{{ domain }}`) && PathPrefix(`/eurooffice-ds`)"
+      traefik.http.routers.eurooffice-ds.tls: "true"
+      traefik.http.routers.eurooffice-ds.tls.certresolver: "letsencrypt"
+      traefik.http.routers.eurooffice-ds.middlewares: "eurooffice-ds-strip"
+      traefik.http.routers.eurooffice-ds.service: "eurooffice-ds-svc"
+      traefik.http.middlewares.eurooffice-ds-strip.stripprefix.prefixes: "/eurooffice-ds"
+      traefik.http.services.eurooffice-ds-svc.loadbalancer.server.port: "80"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      names: true
+      new: true
+
+- name: Add boot-ordering dependency on traefik to eurooffice-ds unit (no cascade stop)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.lineinfile:
+    path: "/home/{{ containers_user }}/.config/systemd/user/container-eurooffice-ds.service"
+    regexp: "^{{ item.key }}=container-traefik\\.service"
+    line: "{{ item.key }}=container-traefik.service"
+    insertbefore: "^\\[Service\\]"
+    state: present
+  loop:
+    - {key: Wants}
+    - {key: After}
+
+- name: Start EuroOffice Document Server
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-eurooffice-ds.service
+    enabled: true
+    state: started
+    daemon_reload: true

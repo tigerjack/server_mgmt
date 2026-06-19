@@ -22,7 +22,7 @@ nextcloud_db_image:      "docker.io/mariadb:11.4"
 nextcloud_valkey_image:  "docker.io/valkey/valkey:8-alpine"
 forgejo_image:           "codeberg.org/forgejo/forgejo:9"
 forgejo_db_image:        "docker.io/mariadb:11.4"
-collabora_image:         "docker.io/collabora/code:latest"
+eurooffice_ds_image:     "ghcr.io/euro-office/documentserver:latest"
 
 # ISO 3166-1 alpha-2 region code used to validate phone numbers without a
 # country code in Nextcloud profile settings. Change to match your region.
