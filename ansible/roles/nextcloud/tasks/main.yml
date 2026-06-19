@@ -242,3 +242,35 @@
       podman exec --user www-data nextcloud php /var/www/html/occ
       config:app:set richdocuments wopi_url --value="https://{{ domain }}"
   changed_when: true
+
+# System config
+- name: Configure Nextcloud system settings
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user www-data nextcloud php /var/www/html/occ
+      config:system:set {{ item.key }} {{ item.extra | default('') }} --value="{{ item.value }}"
+  changed_when: true
+  loop:
+    # Used by CLI and some admin checks. The container can't reach the public
+    # HTTPS URL from inside (hairpin NAT), so some admin self-tests will still
+    # show "could not check" — the actual features work fine.
+    - key: overwrite.cli.url
+      value: "https://{{ domain }}/cloud/"
+    # Run heavy background jobs at 1 AM to avoid impacting users
+    - key: maintenance_window_start
+      extra: "--type=integer"
+      value: "1"
+    # Validate phone numbers in profiles without a country code prefix
+    - key: default_phone_region
+      value: "{{ nextcloud_phone_region }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Run Nextcloud mimetype migrations (one-time; no-op if already done)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ maintenance:repair --include-expensive
+  changed_when: false

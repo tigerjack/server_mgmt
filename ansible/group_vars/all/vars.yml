@@ -17,9 +17,13 @@ edge_network_subnet: "10.89.0.0/24"
 # podman-auto-update. Bump major.minor deliberately after reading release notes.
 traefik_image:           "docker.io/traefik:3.3"
 static_site_image:       "docker.io/nginx:1.27-alpine"
-nextcloud_image:         "docker.io/nextcloud:30-apache"
+nextcloud_image:         "docker.io/nextcloud:31-apache"
 nextcloud_db_image:      "docker.io/mariadb:11.4"
 nextcloud_valkey_image:  "docker.io/valkey/valkey:8-alpine"
 forgejo_image:           "codeberg.org/forgejo/forgejo:9"
 forgejo_db_image:        "docker.io/mariadb:11.4"
 collabora_image:         "docker.io/collabora/code:latest"
+
+# ISO 3166-1 alpha-2 region code used to validate phone numbers without a
+# country code in Nextcloud profile settings. Change to match your region.
+nextcloud_phone_region: "IT"
