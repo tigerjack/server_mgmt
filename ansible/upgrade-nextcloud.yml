@@ -1,0 +1,7 @@
+---
+# Used by upgrade-nextcloud.sh to upgrade Nextcloud one major version at a time.
+# Runs only the nextcloud role — no Traefik restart, no other services touched.
+- name: Upgrade Nextcloud (one major version step)
+  hosts: all
+  roles:
+    - nextcloud
