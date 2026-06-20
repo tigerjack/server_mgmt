@@ -41,7 +41,7 @@
       - "--transaction-isolation=READ-COMMITTED"
       - "--binlog-format=ROW"
     volume:
-      - forgejo-db:/var/lib/mysql:Z
+      - forgejo-db:/var/lib/mysql
     network:
       - mariadb-forgejo
     env:
@@ -74,8 +74,8 @@
     image: "{{ forgejo_image }}"
     state: present
     volume:
-      - forgejo-data:/var/lib/gitea:Z
-      - forgejo-config:/etc/gitea:Z
+      - forgejo-data:/var/lib/gitea
+      - forgejo-config:/etc/gitea
     network:
       - edge
       - mariadb-forgejo
@@ -182,3 +182,14 @@
   until: forgejo_admin_create.rc == 0 or 'already exists' in forgejo_admin_create.stderr
   changed_when: "'already exists' not in forgejo_admin_create.stderr"
   failed_when: forgejo_admin_create.rc != 0 and 'already exists' not in forgejo_admin_create.stderr
+
+- name: Regenerate git hooks in all repositories
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user git forgejo forgejo admin regenerate hooks
+  changed_when: false
+  retries: 5
+  delay: 6
+  register: forgejo_regen_hooks
+  until: forgejo_regen_hooks.rc == 0
