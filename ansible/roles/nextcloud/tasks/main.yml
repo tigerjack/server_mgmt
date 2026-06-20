@@ -256,6 +256,7 @@
     - richdocuments   # Collabora Online connector — secondary
     - contacts
     - contactsinteraction
+    - groupfolders    # "Team folders" in the UI — shared group storage
 
 - name: Enable bundled Nextcloud apps (shipped with NC but disabled by default)
   become: true
