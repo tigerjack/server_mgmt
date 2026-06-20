@@ -19,7 +19,6 @@
     state: present
   loop:
     - forgejo-data
-    - forgejo-config
     - forgejo-db
 
 - name: Create forgejo's internal db network
@@ -41,7 +40,7 @@
       - "--transaction-isolation=READ-COMMITTED"
       - "--binlog-format=ROW"
     volume:
-      - forgejo-db:/var/lib/mysql:z
+      - forgejo-db:/var/lib/mysql
     network:
       - mariadb-forgejo
     env:
@@ -73,9 +72,16 @@
     name: forgejo
     image: "{{ forgejo_image }}"
     state: present
+    # The standard forgejo image (not the -rootless variant) keeps ALL of its
+    # persistent state under /data: repositories at /data/git/repositories,
+    # avatars at /data/gitea/avatars, and app.ini at /data/gitea/conf/app.ini.
+    # This MUST be a named volume mounted at /data - if it isn't, the image's
+    # `VOLUME /data` makes podman create a throwaway anonymous volume, and with
+    # generate_systemd new:true every deploy runs `podman run --rm`, wiping it
+    # (repos become unreadable, avatars vanish). /var/lib/gitea and /etc/gitea
+    # are the -rootless image's paths and are unused here.
     volume:
-      - forgejo-data:/var/lib/gitea:z
-      - forgejo-config:/etc/gitea:z
+      - forgejo-data:/data
     network:
       - edge
       - mariadb-forgejo
