@@ -4,6 +4,16 @@
   roles:
     - traefik
 
+# EXPERIMENTAL - identity provider. Runs right after traefik so the apps that
+# follow can register against it. No-op unless enable_authelia is true.
+- name: Authelia single sign-on / OIDC provider (experimental)
+  hosts: all
+  tasks:
+    - name: Deploy Authelia
+      ansible.builtin.include_role:
+        name: authelia
+      when: enable_authelia | default(false)
+
 - name: Static landing page
   hosts: all
   roles:

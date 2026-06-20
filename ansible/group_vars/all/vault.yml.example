@@ -38,3 +38,47 @@ vault_collabora_admin_password: "CHANGE_ME"
 # No separate admin user/password; the docker run command only requires JWT_SECRET.
 # Generate with: openssl rand -hex 32
 vault_eurooffice_jwt_secret: "CHANGE_ME"
+
+# ===========================================================================
+# EXPERIMENTAL: SMTP + Authelia SSO. Only needed when enable_smtp /
+# enable_authelia are true. See EXPERIMENTAL-SSO-SMTP.md for how to fill these.
+# ===========================================================================
+
+# --- SMTP relay credentials ---
+# Leave blank if the university relay accepts unauthenticated mail from the
+# server's IP; otherwise set the SMTP login.
+vault_smtp_user:     ""
+vault_smtp_password: ""
+
+# --- Authelia core secrets ---  generate each with: openssl rand -hex 32
+vault_authelia_session_secret:         "CHANGE_ME"
+vault_authelia_storage_encryption_key: "CHANGE_ME"
+vault_authelia_jwt_secret:             "CHANGE_ME"
+vault_authelia_oidc_hmac_secret:       "CHANGE_ME"
+
+# --- Authelia OIDC issuer signing key (RSA private key, PEM) ---
+# Generate with:  openssl genrsa 4096
+# Paste the full PEM as a block scalar (mind the indentation).
+vault_authelia_oidc_jwks_key: |
+  -----BEGIN PRIVATE KEY-----
+  CHANGE_ME
+  -----END PRIVATE KEY-----
+
+# --- Authelia admin user (file backend) ---
+# Generate the password hash with:
+#   podman run --rm docker.io/authelia/authelia:4.39 \
+#     authelia crypto hash generate argon2 --password 'YourPassword'
+vault_authelia_admin_user:          "admin"
+vault_authelia_admin_email:         "you@example.com"
+vault_authelia_admin_password_hash: "CHANGE_ME"   # the $argon2id$... string
+
+# --- OIDC client secrets ---
+# Each client needs a PLAINTEXT (handed to the app) and its pbkdf2 HASH
+# (handed to Authelia). Generate a matched pair with:
+#   podman run --rm docker.io/authelia/authelia:4.39 \
+#     authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 48
+# The tool prints "Random Password" (use as the plaintext) and "Digest" (the hash).
+vault_oidc_forgejo_client_secret:        "CHANGE_ME_PLAINTEXT"
+vault_oidc_forgejo_client_secret_hash:   "CHANGE_ME_HASH"
+vault_oidc_nextcloud_client_secret:      "CHANGE_ME_PLAINTEXT"
+vault_oidc_nextcloud_client_secret_hash: "CHANGE_ME_HASH"

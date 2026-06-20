@@ -28,7 +28,26 @@ forgejo_image:           "codeberg.org/forgejo/forgejo:9"
 forgejo_db_image:        "docker.io/mariadb:11.4"
 collabora_image:         "docker.io/collabora/code:latest"
 eurooffice_ds_image:     "ghcr.io/euro-office/documentserver:latest"
+authelia_image:          "docker.io/authelia/authelia:4.39"
 
 # ISO 3166-1 alpha-2 region code used to validate phone numbers without a
 # country code in Nextcloud profile settings. Change to match your region.
 nextcloud_phone_region: "IT"
+
+# ---------------------------------------------------------------------------
+# EXPERIMENTAL: email (SMTP) + single sign-on (Authelia). Both default OFF so
+# this branch behaves exactly like the stable stack until you opt in and fill
+# in the secrets. See EXPERIMENTAL-SSO-SMTP.md for the full walkthrough.
+# ---------------------------------------------------------------------------
+enable_smtp: false
+enable_authelia: false
+
+# SMTP relay (e.g. the university mail server). Leave smtp_host blank until you
+# know it; nothing is sent while enable_smtp is false.
+smtp_host: ""                 # e.g. "smtp.polimi.it"
+smtp_port: 587
+smtp_security: "starttls"     # starttls (587) | tls (465) | none (25)
+smtp_from: "noreply@{{ domain }}"
+
+# Authelia is served under this path on the main domain (no subdomain needed).
+authelia_subpath: "/auth"

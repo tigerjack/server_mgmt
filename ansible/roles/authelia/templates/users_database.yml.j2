@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+# EXPERIMENTAL - Authelia file-based user database.
+# Add users here, then re-run the playbook. Generate a password hash with:
+#   podman run --rm {{ authelia_image }} authelia crypto hash generate argon2 --password 'YourPassword'
+# Store the resulting hash in vault_authelia_admin_password_hash (and add more
+# users below following the same shape).
+users:
+  {{ vault_authelia_admin_user | default('admin') }}:
+    disabled: false
+    displayname: "Administrator"
+    password: "{{ vault_authelia_admin_password_hash }}"
+    email: "{{ vault_authelia_admin_email | default('admin@' + domain) }}"
+    groups:
+      - admins

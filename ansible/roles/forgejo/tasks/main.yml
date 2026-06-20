@@ -115,6 +115,15 @@
       # Personal/team forge, not a public signup service - flip this if
       # you actually want open registration.
       FORGEJO__service__DISABLE_REGISTRATION: "true"
+      # --- EXPERIMENTAL: outbound email via SMTP relay (enable_smtp) ---
+      # default('') keeps these harmless when the vault vars are unset.
+      FORGEJO__mailer__ENABLED: "{{ (enable_smtp | default(false)) | string | lower }}"
+      FORGEJO__mailer__PROTOCOL: "{{ 'smtp+starttls' if smtp_security == 'starttls' else 'smtps' if smtp_security == 'tls' else 'smtp' }}"
+      FORGEJO__mailer__SMTP_ADDR: "{{ smtp_host | default('') }}"
+      FORGEJO__mailer__SMTP_PORT: "{{ smtp_port | default('') | string }}"
+      FORGEJO__mailer__FROM: "{{ smtp_from | default('') }}"
+      FORGEJO__mailer__USER: "{{ vault_smtp_user | default('') }}"
+      FORGEJO__mailer__PASSWD: "{{ vault_smtp_password | default('') }}"
     generate_systemd:
       path: "/home/{{ containers_user }}/.config/systemd/user/"
       restart_policy: on-failure
@@ -193,3 +202,31 @@
   delay: 6
   register: forgejo_regen_hooks
   until: forgejo_regen_hooks.rc == 0
+
+# --- EXPERIMENTAL: Authelia OIDC login source (enable_authelia) ---
+- name: Check whether the Authelia OIDC auth source already exists
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user git forgejo forgejo admin auth list
+  register: forgejo_auth_list
+  changed_when: false
+  when: enable_authelia | default(false)
+
+- name: Add Authelia as a Forgejo OIDC login source
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user git forgejo forgejo admin auth add-oauth
+      --name authelia
+      --provider openidConnect
+      --key forgejo
+      --secret {{ vault_oidc_forgejo_client_secret }}
+      --auto-discover-url https://{{ domain }}{{ authelia_subpath }}/.well-known/openid-configuration
+      --scopes "openid profile email groups"
+  changed_when: true
+  when:
+    - enable_authelia | default(false)
+    - "'authelia' not in (forgejo_auth_list.stdout | default(''))"

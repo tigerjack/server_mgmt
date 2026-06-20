@@ -1,0 +1,116 @@
+# {{ ansible_managed }}
+# EXPERIMENTAL - Authelia main configuration. Secrets (session, storage,
+# jwt, oidc hmac, smtp password) are injected as AUTHELIA_* env vars by the
+# role and intentionally NOT present here. Schema targets Authelia 4.39 -
+# validate against the running version, as the schema evolves between releases.
+
+theme: light
+
+server:
+  # Serve the whole app under {{ authelia_subpath }} so it shares the main
+  # domain with everything else (no subdomain available).
+  address: "tcp://0.0.0.0:9091{{ authelia_subpath }}"
+
+log:
+  level: info
+
+totp:
+  issuer: "{{ domain }}"
+
+authentication_backend:
+  password_reset:
+    disable: false
+  file:
+    path: /config/users_database.yml
+    password:
+      algorithm: argon2
+      argon2:
+        memory: 65536
+        parallelism: 4
+
+access_control:
+  default_policy: deny
+  rules:
+    # Any route protected by the forward-auth middleware requires a login.
+    - domain: "{{ domain }}"
+      policy: one_factor
+
+session:
+  name: authelia_session
+  expiration: "1h"
+  inactivity: "5m"
+  cookies:
+    - domain: "{{ domain }}"
+      authelia_url: "https://{{ domain }}{{ authelia_subpath }}"
+
+regulation:
+  max_retries: 3
+  find_time: "2m"
+  ban_time: "5m"
+
+storage:
+  local:
+    path: /config/db.sqlite3
+
+notifier:
+  # Don't block startup on an SMTP probe - the relay host may not be filled
+  # in yet, and we still want Authelia to boot for OIDC.
+  disable_startup_check: true
+{% if enable_smtp | default(false) and smtp_host %}
+  smtp:
+    address: "{{ 'submission://' if smtp_security == 'starttls' else 'submissions://' if smtp_security == 'tls' else 'smtp://' }}{{ smtp_host }}:{{ smtp_port }}"
+    sender: "{{ smtp_from }}"
+{% if vault_smtp_user | default('') | length > 0 %}
+    username: "{{ vault_smtp_user }}"
+{% endif %}
+{% else %}
+  # No SMTP configured yet - password-reset / 2FA mails are written to a file
+  # inside the container instead. Switch to smtp by enabling enable_smtp and
+  # setting smtp_host.
+  filesystem:
+    filename: /config/notification.txt
+{% endif %}
+
+identity_providers:
+  oidc:
+    # The issuer signing key (RSA private key, PEM). Generate with:
+    #   openssl genrsa -out authelia.key 4096
+    # and paste it into vault_authelia_oidc_jwks_key.
+    jwks:
+      - key_id: main
+        algorithm: RS256
+        use: sig
+        key: |
+          {{ vault_authelia_oidc_jwks_key | indent(10) }}
+    clients:
+      - client_id: forgejo
+        client_name: Forgejo
+        # Hashed secret (pbkdf2). The matching plaintext goes to Forgejo.
+        client_secret: "{{ vault_oidc_forgejo_client_secret_hash }}"
+        public: false
+        authorization_policy: one_factor
+        require_pkce: false
+        redirect_uris:
+          - "https://{{ domain }}/git/user/oauth2/authelia/callback"
+        scopes:
+          - openid
+          - profile
+          - email
+          - groups
+        userinfo_signed_response_alg: none
+        token_endpoint_auth_method: client_secret_post
+      - client_id: nextcloud
+        client_name: Nextcloud
+        client_secret: "{{ vault_oidc_nextcloud_client_secret_hash }}"
+        public: false
+        authorization_policy: one_factor
+        require_pkce: false
+        redirect_uris:
+          - "https://{{ domain }}/cloud/apps/user_oidc/code"
+        scopes:
+          - openid
+          - profile
+          - email
+          - groups
+        userinfo_signed_response_alg: none
+        token_endpoint_auth_method: client_secret_post

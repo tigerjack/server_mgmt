@@ -343,6 +343,65 @@
   loop_control:
     label: "{{ item.key }}"
 
+# --- EXPERIMENTAL: outbound email via SMTP relay (enable_smtp) ---
+# Nextcloud's mail_smtpsecure is confusingly named: 'ssl' = implicit TLS (465),
+# 'tls' = STARTTLS (587), '' = none. We translate our smtp_security here.
+- name: Configure Nextcloud outbound email (SMTP)
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true        # carries the SMTP password
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user www-data nextcloud php /var/www/html/occ
+      config:system:set {{ item.key }} {{ item.extra | default('') }} --value="{{ item.value }}"
+  changed_when: true
+  when: enable_smtp | default(false)
+  loop:
+    - {key: mail_smtpmode,     value: "smtp"}
+    - {key: mail_smtphost,     value: "{{ smtp_host }}"}
+    - {key: mail_smtpport,     value: "{{ smtp_port }}"}
+    - {key: mail_smtpsecure,   value: "{{ 'ssl' if smtp_security == 'tls' else 'tls' if smtp_security == 'starttls' else '' }}"}
+    - {key: mail_smtpauth,     extra: "--type=integer", value: "{{ 1 if (vault_smtp_user | default('') | length > 0) else 0 }}"}
+    - {key: mail_smtpauthtype, value: "LOGIN"}
+    - {key: mail_smtpname,     value: "{{ vault_smtp_user | default('') }}"}
+    - {key: mail_smtppassword, value: "{{ vault_smtp_password | default('') }}"}
+    - {key: mail_from_address, value: "{{ smtp_from.split('@')[0] }}"}
+    - {key: mail_domain,       value: "{{ smtp_from.split('@')[1] }}"}
+  loop_control:
+    label: "{{ item.key }}"
+
+# --- EXPERIMENTAL: Authelia OIDC login (enable_authelia) ---
+- name: Install the user_oidc app for Authelia single sign-on
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:install user_oidc
+  register: nc_oidc_install
+  changed_when: "'installed' in nc_oidc_install.stdout"
+  failed_when: nc_oidc_install.rc != 0 and 'already installed' not in nc_oidc_install.stdout
+  retries: 5
+  delay: 10
+  until: nc_oidc_install.rc == 0 or 'already installed' in nc_oidc_install.stdout
+  when: enable_authelia | default(false)
+
+- name: Register Authelia as a Nextcloud OIDC provider (idempotent upsert by name)
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true        # carries the OIDC client secret
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user www-data nextcloud php /var/www/html/occ
+      user_oidc:provider authelia
+      --clientid="nextcloud"
+      --clientsecret="{{ vault_oidc_nextcloud_client_secret }}"
+      --discoveryuri="https://{{ domain }}{{ authelia_subpath }}/.well-known/openid-configuration"
+      --scope="openid profile email groups"
+      --mapping-uid="preferred_username"
+      --mapping-email="email"
+      --mapping-display-name="name"
+  changed_when: true
+  when: enable_authelia | default(false)
+
 - name: Run Nextcloud mimetype migrations (one-time; no-op if already done)
   become: true
   become_user: "{{ containers_user }}"

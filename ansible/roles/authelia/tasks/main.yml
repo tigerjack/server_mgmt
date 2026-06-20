@@ -1,0 +1,106 @@
+---
+# EXPERIMENTAL - Authelia identity provider (OIDC) + forward-auth.
+# Only runs when enable_authelia is true. See EXPERIMENTAL-SSO-SMTP.md.
+- name: Stop authelia if already running
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-authelia.service
+    state: stopped
+  failed_when: false
+
+- name: Create authelia config directory
+  become: true
+  ansible.builtin.file:
+    path: /etc/authelia
+    state: directory
+    owner: "{{ containers_user }}"
+    group: "{{ containers_user }}"
+    mode: "0700"
+
+- name: Deploy authelia configuration
+  become: true
+  no_log: true        # contains the OIDC issuer private key and client secret hashes
+  ansible.builtin.template:
+    src: configuration.yml.j2
+    dest: /etc/authelia/configuration.yml
+    owner: "{{ containers_user }}"
+    group: "{{ containers_user }}"
+    mode: "0600"
+
+- name: Deploy authelia users database
+  become: true
+  no_log: true        # contains password hashes
+  ansible.builtin.template:
+    src: users_database.yml.j2
+    dest: /etc/authelia/users_database.yml
+    owner: "{{ containers_user }}"
+    group: "{{ containers_user }}"
+    mode: "0600"
+
+- name: Run authelia
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true        # secrets are injected as env vars below
+  containers.podman.podman_container:
+    name: authelia
+    image: "{{ authelia_image }}"
+    state: present
+    network:
+      - edge
+    volume:
+      - /etc/authelia:/config:Z
+    env:
+      # Non-secret config lives in configuration.yml; secrets come in as env
+      # so they never touch disk in plaintext. Authelia maps these names to
+      # the equivalent nested config keys automatically.
+      AUTHELIA_SESSION_SECRET: "{{ vault_authelia_session_secret }}"
+      AUTHELIA_STORAGE_ENCRYPTION_KEY: "{{ vault_authelia_storage_encryption_key }}"
+      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET: "{{ vault_authelia_jwt_secret }}"
+      AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET: "{{ vault_authelia_oidc_hmac_secret }}"
+      AUTHELIA_NOTIFIER_SMTP_PASSWORD: "{{ vault_smtp_password | default('') }}"
+    label:
+      io.containers.autoupdate: "registry"
+      traefik.enable: "true"
+      # Portal + OIDC endpoints served under /auth (no prefix stripping -
+      # Authelia knows it lives under /auth via server.address in its config).
+      traefik.http.routers.authelia.entrypoints: "websecure"
+      traefik.http.routers.authelia.rule: "Host(`{{ domain }}`) && PathPrefix(`{{ authelia_subpath }}`)"
+      traefik.http.routers.authelia.tls: "true"
+      traefik.http.routers.authelia.tls.certresolver: "letsencrypt"
+      traefik.http.routers.authelia.service: "authelia"
+      traefik.http.services.authelia.loadbalancer.server.port: "9091"
+      # Forward-auth middleware other routers can attach to protect bare paths
+      # (apps without their own login). Not applied to anything by default.
+      traefik.http.middlewares.authelia.forwardauth.address: "http://authelia:9091{{ authelia_subpath }}/api/authz/forward-auth"
+      traefik.http.middlewares.authelia.forwardauth.trustForwardHeader: "true"
+      traefik.http.middlewares.authelia.forwardauth.authResponseHeaders: "Remote-User,Remote-Groups,Remote-Name,Remote-Email"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      names: true
+      new: true
+
+- name: Add boot-ordering dependency on traefik to authelia unit (no cascade stop)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.lineinfile:
+    path: "/home/{{ containers_user }}/.config/systemd/user/container-authelia.service"
+    regexp: "^{{ item.key }}=container-traefik\\.service"
+    line: "{{ item.key }}=container-traefik.service"
+    insertbefore: "^\\[Service\\]"
+    state: present
+  loop:
+    - {key: Wants}
+    - {key: After}
+
+- name: Start authelia
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-authelia.service
+    enabled: true
+    state: started
+    daemon_reload: true
