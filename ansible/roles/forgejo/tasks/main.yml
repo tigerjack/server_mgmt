@@ -170,6 +170,32 @@
     - db_forgejo
     - forgejo
 
+# Guardrail for the anonymous-volume data-loss bug: forgejo's persistent
+# state lives under /data, so that path MUST be backed by the forgejo-data
+# named volume. If anything ever regresses the mount (wrong path, image
+# variant change), podman silently falls back to a throwaway anonymous
+# volume that generate_systemd new:true wipes on every deploy. Assert the
+# mount is correct and fail loudly here rather than lose data silently.
+- name: Inspect forgejo mounts to verify /data persistence
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >-
+      {% raw %}podman inspect forgejo --format '{{ range .Mounts }}{{ .Type }}:{{ .Name }}->{{ .Destination }}{{ println }}{{ end }}'{% endraw %}
+  register: forgejo_mounts
+  changed_when: false
+
+- name: Assert /data is backed by the forgejo-data named volume
+  ansible.builtin.assert:
+    that:
+      - "'volume:forgejo-data->/data' in forgejo_mounts.stdout"
+    fail_msg: >-
+      forgejo /data is NOT backed by the forgejo-data named volume - it would
+      ride on a throwaway anonymous volume and be wiped on the next deploy
+      (repos unreadable, avatars lost). Actual mounts:
+      {{ forgejo_mounts.stdout }}
+    success_msg: "forgejo /data is correctly backed by the forgejo-data named volume."
+
 - name: Ensure forgejo has an admin account (no-op once it already exists)
   become: true
   become_user: "{{ containers_user }}"
