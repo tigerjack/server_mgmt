@@ -129,31 +129,43 @@ The OIDC redirect URIs are already pre-registered in Authelia's config:
 
 ---
 
-## Managing Authelia users
+## Managing users — the approval workflow
 
-Users live in a flat file, templated from
-`ansible/roles/authelia/templates/users_database.yml.j2`. The bootstrap admin
-comes from the vault (`vault_authelia_admin_*`). To add more users, generate a
-hash and extend the template:
+There is **no self-service signup**: a person can log into anything only if you
+have added them to Authelia. Adding them *is* the approval. Users are driven by
+the `authelia_users` list in your encrypted vault (`group_vars/all/vault.yml`),
+so onboarding is a data edit, not a template edit.
 
-```bash
-podman run --rm docker.io/authelia/authelia:4.39 \
-  authelia crypto hash generate argon2 --password 'TheirPassword'
-```
+**To approve / add a user:**
 
-```yaml
-# users_database.yml.j2
-  alice:
-    disabled: false
-    displayname: "Alice"
-    password: "$argon2id$v=19$..."   # the generated hash
-    email: "alice@example.com"
-    groups: [users]
-```
+1. Generate their password hash:
+   ```bash
+   podman run --rm docker.io/authelia/authelia:4.39 \
+     authelia crypto hash generate argon2 --password 'TheirPassword'
+   ```
+2. Add an entry to `authelia_users` in the vault:
+   ```yaml
+   authelia_users:
+     - username: "admin"
+       displayname: "Administrator"
+       email: "you@example.com"
+       password_hash: "$argon2id$v=19$..."
+       groups: [admins]
+     - username: "alice"            # <-- new, approved user
+       displayname: "Alice Rossi"
+       email: "alice@polimi.it"
+       password_hash: "$argon2id$v=19$..."
+       groups: [users]
+   ```
+3. Re-run the playbook. (`groups` defaults to `[users]`; `displayname` defaults
+   to the username.)
 
-Re-run the playbook to push the change. (When you outgrow a flat file, Authelia
+**To revoke a user:** set `disabled: true` on their entry (keeps the record) or
+delete it entirely, then re-run.
+
+This scales fine to a few dozen users. When you outgrow a flat file, Authelia
 can switch its `authentication_backend` to LDAP without changing anything in the
-apps — that is the natural future upgrade path.)
+apps — that is the natural future upgrade path.
 
 ---
 
