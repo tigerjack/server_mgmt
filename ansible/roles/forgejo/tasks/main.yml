@@ -41,7 +41,7 @@
       - "--transaction-isolation=READ-COMMITTED"
       - "--binlog-format=ROW"
     volume:
-      - forgejo-db:/var/lib/mysql
+      - forgejo-db:/var/lib/mysql:z
     network:
       - mariadb-forgejo
     env:
@@ -74,8 +74,8 @@
     image: "{{ forgejo_image }}"
     state: present
     volume:
-      - forgejo-data:/var/lib/gitea
-      - forgejo-config:/etc/gitea
+      - forgejo-data:/var/lib/gitea:z
+      - forgejo-config:/etc/gitea:z
     network:
       - edge
       - mariadb-forgejo

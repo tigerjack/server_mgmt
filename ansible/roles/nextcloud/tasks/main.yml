@@ -51,7 +51,7 @@
       - "--transaction-isolation=READ-COMMITTED"
       - "--binlog-format=ROW"
     volume:
-      - nextcloud-db:/var/lib/mysql
+      - nextcloud-db:/var/lib/mysql:z
     network:
       - mariadb-nextcloud
     env:
@@ -83,7 +83,7 @@
       - "--loglevel"
       - "warning"
     volume:
-      - nextcloud-valkey:/data
+      - nextcloud-valkey:/data:z
     network:
       - valkey-nextcloud
     label:
@@ -103,9 +103,9 @@
     image: "{{ nextcloud_image }}"
     state: present
     volume:
-      - nextcloud-html:/var/www/html
-      - nextcloud-data:/var/www/html/data
-      - nextcloud-config:/var/www/html/config
+      - nextcloud-html:/var/www/html:z
+      - nextcloud-data:/var/www/html/data:z
+      - nextcloud-config:/var/www/html/config:z
     network:
       - edge
       - mariadb-nextcloud
