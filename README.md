@@ -274,6 +274,43 @@ podman run --rm docker.io/authelia/authelia:4.39 \
 Re-run the playbook after any change. To revoke access: set `disabled: true` or
 remove the entry entirely.
 
+#### Adding a user without running the playbook
+
+If you need to give someone access immediately, edit the live file on the server
+directly — Authelia watches it and reloads without a restart:
+
+1. Generate the hash (on the server or your local machine):
+   ```bash
+   podman run --rm docker.io/authelia/authelia:4.39 \
+     authelia crypto hash generate argon2 --password 'TheirPassword'
+   ```
+2. Edit the file on the server:
+   ```bash
+   sudo nano /etc/authelia/users_database.yml
+   ```
+   Add the new entry under `users:` (note: the key in this file is `password`,
+   not `password_hash`):
+   ```yaml
+     newuser:
+       displayname: "New User"
+       password: "$argon2id$v=19$..."
+       email: "newuser@example.com"
+       groups:
+         - users
+   ```
+3. Authelia picks up the change automatically — no restart needed.
+
+> **Make it permanent:** the next playbook run overwrites this file from the
+> vault. Before then, add the entry to `host_vars/<host>/vault.yml`
+> (`ansible-vault edit`) using `password_hash` instead of `password`:
+> ```yaml
+> - username: "newuser"
+>   displayname: "New User"
+>   email: "newuser@example.com"
+>   password_hash: "$argon2id$v=19$..."
+>   groups: [users]
+> ```
+
 ### Changing a password — and why the vault is the source of truth
 
 The `password_hash` in the vault is the **authoritative** copy. The playbook
