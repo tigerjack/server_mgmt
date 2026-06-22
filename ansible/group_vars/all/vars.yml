@@ -40,7 +40,7 @@ nextcloud_phone_region: "IT"
 # in the secrets. See EXPERIMENTAL-SSO-SMTP.md for the full walkthrough.
 # ---------------------------------------------------------------------------
 enable_smtp: false
-enable_authelia: false
+enable_authelia: true
 
 # SMTP relay (e.g. the university mail server). Leave smtp_host blank until you
 # know it; nothing is sent while enable_smtp is false.
