@@ -127,9 +127,12 @@
       # Database is fully configured above, so skip the web installer
       # entirely rather than leaving the instance sitting unconfigured.
       FORGEJO__security__INSTALL_LOCK: "true"
-      # Personal/team forge, not a public signup service - flip this if
-      # you actually want open registration.
-      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      # Block manual self-signup but allow account creation via OIDC/OAuth2.
+      # DISABLE_REGISTRATION alone blocks everything including OIDC logins.
+      # ALLOW_ONLY_EXTERNAL_REGISTRATION=true lets OIDC create accounts while
+      # keeping the manual registration form disabled.
+      FORGEJO__service__DISABLE_REGISTRATION: "false"
+      FORGEJO__service__ALLOW_ONLY_EXTERNAL_REGISTRATION: "true"
       # --- EXPERIMENTAL: outbound email via SMTP relay (enable_smtp) ---
       # default('') keeps these harmless when the vault vars are unset.
       FORGEJO__mailer__ENABLED: "{{ (enable_smtp | default(false)) | string | lower }}"
