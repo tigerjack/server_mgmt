@@ -14,7 +14,7 @@ domain: "spqr-project.deib.polimi.it"
 # vault_smtp_password). Leave commented out until ready.
 #
 enable_smtp: true
-smtp_host: "smtp.polimi.it"
+smtp_host: "smtp-relay.brevo.com"
 smtp_port: 587
 smtp_security: "starttls"       # starttls (587) | tls (465) | none (25)
-smtp_from: "noreply@spqr-project.deib.polimi.it"
+smtp_from: "noreply@promethence.com"
