@@ -85,6 +85,13 @@
     network:
       - edge
       - mariadb-forgejo
+    # The host's /etc/hostname maps the FQDN to 127.0.1.1, which Podman copies
+    # into the container's /etc/hosts. Without this override, back-channel OIDC
+    # calls (discovery fetch, token exchange) dial 127.0.1.1:443 and get
+    # "connection refused". Mapping the domain to the real host IP lets those
+    # calls reach Traefik's published 443 with a valid TLS cert.
+    etc_hosts:
+      "{{ domain }}": "{{ ansible_default_ipv4.address }}"
     label:
       io.containers.autoupdate: "registry"
       traefik.enable: "true"
@@ -256,7 +263,7 @@
       --provider openidConnect
       --key forgejo
       --secret {{ vault_oidc_forgejo_client_secret }}
-      --auto-discover-url https://{{ domain }}{{ authelia_subpath }}/.well-known/openid-configuration
+      --auto-discover-url http://authelia:9091{{ authelia_subpath }}/.well-known/openid-configuration
       --scopes "openid profile email groups"
   changed_when: true
   when:
