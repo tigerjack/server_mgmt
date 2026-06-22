@@ -110,6 +110,11 @@
       - edge
       - mariadb-nextcloud
       - valkey-nextcloud
+    # Same hairpin fix as Forgejo: the host's /etc/hosts maps the FQDN to
+    # 127.0.1.1 which Podman copies into each container. Back-channel OIDC
+    # calls (user_oidc discovery fetch, token exchange) then hit loopback and
+    # fail. Map the domain to the real host IP so they reach Traefik's 443.
+    etc_hosts: "{{ {domain: ansible_default_ipv4.address} }}"
     env:
       # Database
       MYSQL_HOST:     "db_nextcloud"
