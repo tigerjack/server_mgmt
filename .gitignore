@@ -1,6 +1,9 @@
 # Ansible vault password file - never commit this
 .vault_pass
 ansible/group_vars/all/vault.yml
+# Any per-host vault (host_vars/<host>/vault.yml) - keep secrets out of git.
+# The committed .example templates are fine; the real encrypted vaults are not.
+ansible/host_vars/*/vault.yml
 
 # Retry files left by failed ansible runs
 *.retry
