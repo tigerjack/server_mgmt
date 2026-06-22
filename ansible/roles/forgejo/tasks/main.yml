@@ -19,7 +19,6 @@
     state: present
   loop:
     - forgejo-data
-    - forgejo-config
     - forgejo-db
 
 - name: Create forgejo's internal db network
@@ -73,9 +72,16 @@
     name: forgejo
     image: "{{ forgejo_image }}"
     state: present
+    # The standard forgejo image (not the -rootless variant) keeps ALL of its
+    # persistent state under /data: repositories at /data/git/repositories,
+    # avatars at /data/gitea/avatars, and app.ini at /data/gitea/conf/app.ini.
+    # This MUST be a named volume mounted at /data - if it isn't, the image's
+    # `VOLUME /data` makes podman create a throwaway anonymous volume, and with
+    # generate_systemd new:true every deploy runs `podman run --rm`, wiping it
+    # (repos become unreadable, avatars vanish). /var/lib/gitea and /etc/gitea
+    # are the -rootless image's paths and are unused here.
     volume:
-      - forgejo-data:/var/lib/gitea
-      - forgejo-config:/etc/gitea
+      - forgejo-data:/data
     network:
       - edge
       - mariadb-forgejo
@@ -172,6 +178,32 @@
   loop:
     - db_forgejo
     - forgejo
+
+# Guardrail for the anonymous-volume data-loss bug: forgejo's persistent
+# state lives under /data, so that path MUST be backed by the forgejo-data
+# named volume. If anything ever regresses the mount (wrong path, image
+# variant change), podman silently falls back to a throwaway anonymous
+# volume that generate_systemd new:true wipes on every deploy. Assert the
+# mount is correct and fail loudly here rather than lose data silently.
+- name: Inspect forgejo mounts to verify /data persistence
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >-
+      {% raw %}podman inspect forgejo --format '{{ range .Mounts }}{{ .Type }}:{{ .Name }}->{{ .Destination }}{{ println }}{{ end }}'{% endraw %}
+  register: forgejo_mounts
+  changed_when: false
+
+- name: Assert /data is backed by the forgejo-data named volume
+  ansible.builtin.assert:
+    that:
+      - "'volume:forgejo-data->/data' in forgejo_mounts.stdout"
+    fail_msg: >-
+      forgejo /data is NOT backed by the forgejo-data named volume - it would
+      ride on a throwaway anonymous volume and be wiped on the next deploy
+      (repos unreadable, avatars lost). Actual mounts:
+      {{ forgejo_mounts.stdout }}
+    success_msg: "forgejo /data is correctly backed by the forgejo-data named volume."
 
 - name: Ensure forgejo has an admin account (no-op once it already exists)
   become: true

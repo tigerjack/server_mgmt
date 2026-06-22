@@ -256,6 +256,10 @@
     - richdocuments   # Collabora Online connector — secondary
     - contacts
     - contactsinteraction
+    - groupfolders    # "Team folders" in the UI — shared group storage
+    - forms           # Form builder / surveys
+    - polls           # Decision-making polls
+    - tasks           # Tasks / to-do lists (CalDAV-backed)
 
 - name: Enable bundled Nextcloud apps (shipped with NC but disabled by default)
   become: true
