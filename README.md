@@ -186,9 +186,8 @@ Host example.com
 Single sign-on identity provider (OIDC). On by default (`enable_authelia: true`).
 Serves at `https://<domain>/auth`. Users log in here once and the token is
 accepted by both Nextcloud and Forgejo. See the
-[Authelia SSO](#authelia-sso-oidc-single-sign-on) section below and
-**EXPERIMENTAL-SSO-SMTP.md** for setup, user management, and the password-change
-workflow.
+[Authelia SSO](#authelia-sso-oidc-single-sign-on) section below for setup,
+user management, and the password-change workflow.
 
 ### `collabora`
 
@@ -209,8 +208,7 @@ by default — Collabora is available as a fallback.
 > **Status: on by default** (`enable_authelia: true` in
 > `group_vars/all/vars.yml`). Authelia is the **preferred login method** for
 > all regular users. The local admin accounts (set in the vault) bypass
-> Authelia and are used only for initial setup or emergency access. See
-> **EXPERIMENTAL-SSO-SMTP.md** for the full setup and password-change guide.
+> Authelia and are used only for initial setup or emergency access.
 
 Authelia provides a **single login shared across Nextcloud and Forgejo**: users
 authenticate once at `https://<domain>/auth` and the OIDC token is accepted by
@@ -274,9 +272,58 @@ podman run --rm docker.io/authelia/authelia:4.39 \
 ```
 
 Re-run the playbook after any change. To revoke access: set `disabled: true` or
-remove the entry entirely. See **EXPERIMENTAL-SSO-SMTP.md** for the full
-password-change workflow (the vault hash must be updated, or a redeploy reverts
-any change made only inside the container).
+remove the entry entirely.
+
+### Changing a password — and why the vault is the source of truth
+
+The `password_hash` in the vault is the **authoritative** copy. The playbook
+renders `users_database.yml` from `authelia_users` on every run and overwrites
+the file inside the container. This has one important consequence:
+
+> **Anything that changes a password *only* inside the container is temporary.**
+> The next `ansible-playbook` run re-renders `users_database.yml` from the vault
+> and reverts to the hash stored there — the user is then locked out with their
+> old password.
+
+So a password change is **not** complete until the new hash is back in the vault.
+
+**A. Admin changes it (recommended, works without SMTP):**
+
+1. Generate a new hash:
+   ```bash
+   podman run --rm docker.io/authelia/authelia:4.39 \
+     authelia crypto hash generate argon2 --password 'TheNewPassword'
+   ```
+2. Replace that user's `password_hash` in the vault:
+   ```bash
+   ansible-vault edit host_vars/<host>/vault.yml
+   ```
+3. Re-run the playbook. Done — vault and container now agree.
+
+**B. User self-resets via the portal (requires SMTP configured):**
+
+If `enable_smtp` is on, the portal's *Forgot password?* link emails a reset
+token; completing it rewrites `users_database.yml` **inside the container only**.
+That works immediately, but to survive the next deploy you must pull the new
+hash back into the vault:
+
+1. Read the hash Authelia just wrote:
+   ```bash
+   sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
+     podman exec authelia cat /config/users_database.yml
+   ```
+2. Copy that user's new `password` field into `password_hash` in
+   `host_vars/<host>/vault.yml` (`ansible-vault edit`).
+3. Re-run the playbook so vault and container stay in sync.
+
+Until you do steps 2–3, treat the reset as provisional: a redeploy will undo it.
+
+> **Future upgrade path:** this file-backend friction scales fine to a few dozen
+> users. When self-service password management becomes a real need, switch
+> Authelia's `authentication_backend` from `file` to **LDAP** (e.g.
+> lldap/OpenLDAP): users then own their passwords in the directory, the vault no
+> longer holds hashes, and the whole revert problem disappears — without touching
+> anything in Nextcloud or Forgejo.
 
 ### Linking existing accounts
 
@@ -292,8 +339,23 @@ rather than creating a duplicate, **provided the email/username match** the
 
 ### Enabling it
 
-1. Generate secrets (see EXPERIMENTAL-SSO-SMTP.md §2.1) and fill them into the
-   per-host vault, along with at least one `authelia_users` entry.
+1. Generate secrets and fill them into the per-host vault, along with at least
+   one `authelia_users` entry. The example file
+   `host_vars/spqr-project/vault.yml.example` lists every key with a generator
+   command. Summary:
+   ```bash
+   # Four random secrets (session, storage encryption, reset-JWT, OIDC HMAC):
+   openssl rand -hex 32      # run four times, one per secret
+
+   # OIDC issuer signing key (RSA private key, PEM):
+   openssl genrsa 4096       # paste the whole PEM into vault_authelia_oidc_jwks_key
+
+   # One OIDC client-secret PAIR per app (plaintext + pbkdf2 hash):
+   podman run --rm docker.io/authelia/authelia:4.39 \
+     authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 48
+   #   -> "Random Password" is the PLAINTEXT (goes to vault_oidc_<app>_client_secret)
+   #   -> "Digest"          is the HASH      (goes to vault_oidc_<app>_client_secret_hash)
+   ```
 2. `enable_authelia: true` is already the default in `group_vars/all/vars.yml`.
    If you turned it off, flip it back there or override it in
    `host_vars/<host>/vars.yml`.
@@ -416,6 +478,34 @@ traefik.http.routers.<name>.middlewares: "authelia@docker"
 ```
 
 Unauthenticated requests are redirected to the Authelia portal first.
+
+### Caveats and operational notes
+
+- **Authelia schema version.** The config targets Authelia **4.39**. If you pin
+  a different tag, verify compatibility — the usual breaking points between
+  releases are the `server.address` path syntax, the `jwks` key structure under
+  `identity_providers.oidc`, and the notifier address scheme (e.g.
+  `submission://` vs `smtp+starttls://`). Check container logs after a version
+  bump:
+  ```bash
+  sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
+    podman logs authelia
+  ```
+- **Subpath OIDC issuer.** Because Authelia is under `/auth`, the issuer is
+  `https://<domain>/auth` and discovery is at
+  `https://<domain>/auth/.well-known/openid-configuration`. If an app complains
+  about an issuer mismatch, check this prefix first.
+- **Forgejo auth source idempotency.** The role adds the `authelia` OIDC source
+  only if it does not already appear in `forgejo admin auth list`. If you change
+  the client secret later, remove and re-add the source:
+  `forgejo admin auth delete-oauth --id <id>`, then re-run the playbook.
+- **Nextcloud groups.** `user_oidc` maps `preferred_username`, `email`, and
+  `name` from the OIDC token. Group sync from Authelia is not wired — Authelia
+  groups flow in the token but Nextcloud ignores them. Manage group membership
+  manually in Nextcloud if needed.
+- **Bind-mount permissions.** Authelia writes `db.sqlite3` and (without SMTP)
+  `notification.txt` into `/etc/authelia`. If it logs permission errors under
+  rootless Podman, check ownership of `/etc/authelia` (`containers` user).
 
 ---
 
@@ -553,8 +643,7 @@ ansible/
     forgejo/tasks/main.yml            # Forgejo + MariaDB
     collabora/tasks/main.yml          # Collabora Online document server
     eurooffice/tasks/main.yml         # EuroOffice document server (primary)
-    authelia/tasks/main.yml           # SSO/OIDC provider (experimental, off by default)
+    authelia/tasks/main.yml           # SSO/OIDC provider (on by default)
 README.md                  # This file
-EXPERIMENTAL-SSO-SMTP.md   # Full setup guide for Authelia + SMTP (experimental)
 PODMAN-README.md           # One-time host setup (rootless Podman + containers user)
 ```
