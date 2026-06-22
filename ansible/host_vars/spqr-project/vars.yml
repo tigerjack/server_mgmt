@@ -9,12 +9,10 @@ static_site_dir: "site-spqr"
 domain: "spqr-project.deib.polimi.it"
 
 # --- SMTP relay (per-host override) ---
-# Set enable_smtp: true here and fill in the relay details once the university
-# SMTP server is available. Credentials go in vault.yml (vault_smtp_user /
-# vault_smtp_password). Leave commented out until ready.
-#
+# Relay through Brevo (free tier, domain promethence.com authenticated).
+# Credentials go in vault.yml: vault_smtp_user / vault_smtp_password.
 enable_smtp: true
 smtp_host: "smtp-relay.brevo.com"
 smtp_port: 587
-smtp_security: "starttls"       # starttls (587) | tls (465) | none (25)
+smtp_security: "starttls"
 smtp_from: "noreply@promethence.com"
