@@ -210,11 +210,13 @@ provider; Nextcloud and Forgejo are pre-registered as OIDC clients.
 ### User management (approval workflow)
 
 There is **no self-service registration**: a person can log in only if you have
-explicitly added them to the `authelia_users` list in your encrypted vault.
-Adding someone to that list *is* the approval step.
+explicitly added them to the `authelia_users` list in your **per-host**
+encrypted vault. Adding someone to that list *is* the approval step. Because the
+list is per host, each instance (`spqr-project`, …) has its own users — they are
+not shared.
 
 ```yaml
-# In group_vars/all/vault.yml:
+# In host_vars/<host>/vault.yml (encrypted):
 authelia_users:
   - username: "alice"
     displayname: "Alice Rossi"
@@ -223,14 +225,58 @@ authelia_users:
     groups: [users]
 ```
 
+The `password_hash` is required and is the source of truth — a username with no
+hash makes Authelia refuse to start (the role asserts this up front). Generate
+it with:
+
+```bash
+podman run --rm docker.io/authelia/authelia:4.39 \
+  authelia crypto hash generate argon2 --password 'TheirPassword'
+```
+
 Re-run the playbook after any change. To revoke access: set `disabled: true` or
-remove the entry entirely.
+remove the entry entirely. See **EXPERIMENTAL-SSO-SMTP.md** for the full
+password-change workflow (the vault hash must be updated, or a redeploy reverts
+any change made only inside the container).
+
+### Linking existing accounts
+
+If a user already has a local Nextcloud/Forgejo account, OIDC login maps onto it
+rather than creating a duplicate, **provided the email/username match** the
+`authelia_users` entry:
+
+- **Forgejo** prompts for the existing password once on first OIDC login to link
+  the accounts (visible afterwards under Settings → Security).
+- **Nextcloud** keys on the `preferred_username` claim (`--mapping-uid`), so the
+  same username lands in the same account. Nextcloud has no per-user "linked
+  accounts" UI — confirm with `occ user:list` (no duplicate) and `occ user:info`.
 
 ### Enabling it
 
-1. Generate secrets (see EXPERIMENTAL-SSO-SMTP.md §2.1) and fill them into the vault.
-2. Set `enable_authelia: true` (and optionally `enable_smtp: true`) in `vars.yml`.
+1. Generate secrets (see EXPERIMENTAL-SSO-SMTP.md §2.1) and fill them into the
+   per-host vault, along with at least one `authelia_users` entry.
+2. Set `enable_authelia: true` (and optionally `enable_smtp: true`) in
+   `group_vars/all/vars.yml`.
 3. Run the playbook.
+
+### Implementation notes (same-host OIDC quirks)
+
+Because Authelia, Nextcloud and Forgejo all run on one host behind one domain,
+the roles handle two non-obvious issues automatically:
+
+- **`/etc/hosts` hairpin.** Podman copies the host's `/etc/hosts`, which maps the
+  FQDN to `127.0.1.1`. Server-side OIDC calls (discovery fetch, token exchange)
+  would dial loopback and fail. The Forgejo and Nextcloud containers get an
+  `etc_hosts` override mapping the domain to the real host IP, so those calls
+  reach Traefik's published `:443` with a valid certificate.
+- **Nextcloud SSRF block.** Nextcloud's HTTP client refuses to contact
+  local/same-host addresses by default, raising `LocalServerException`
+  ("Could not reach the OpenID Connect provider"). The role sets
+  `allow_local_remote_servers=true` when Authelia is enabled.
+- **Traefik backend refresh.** Authelia gets a fresh container IP on each
+  deploy, so the role restarts Traefik right after (re)creating Authelia to
+  avoid a stale-backend `502` during the Forgejo/Nextcloud OIDC registration.
+  Likewise, manually restarting any app container needs a Traefik restart after.
 
 ### Forward-auth for bare routes
 
