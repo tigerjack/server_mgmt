@@ -42,7 +42,7 @@ smtp_from: "noreply@spqr-project.deib.polimi.it"
 ### 1.2 Set credentials in the vault
 
 ```yaml
-# group_vars/all/vault.yml  (encrypted)
+# host_vars/<host>/vault.yml  (encrypted, per instance)
 vault_smtp_user:     "your-smtp-login"     # leave "" if the relay allows
 vault_smtp_password: "your-smtp-password"  # unauthenticated on-campus sending
 ```
@@ -70,8 +70,9 @@ against Authelia and then click "Log in with Authelia" in each app.
 
 ### 2.1 Generate the secrets
 
-All of these go into the encrypted vault (`group_vars/all/vault.yml`). The
-example file `group_vars/all/vault.yml.example` lists every key with its
+All of these go into the per-host encrypted vault
+(`host_vars/<host>/vault.yml`). The example file
+`host_vars/spqr-project/vault.yml.example` lists every key with its
 generator command. Summary:
 
 ```bash
@@ -133,8 +134,10 @@ The OIDC redirect URIs are already pre-registered in Authelia's config:
 
 There is **no self-service signup**: a person can log into anything only if you
 have added them to Authelia. Adding them *is* the approval. Users are driven by
-the `authelia_users` list in your encrypted vault (`group_vars/all/vault.yml`),
-so onboarding is a data edit, not a template edit.
+the `authelia_users` list in your **per-host** encrypted vault
+(`host_vars/<host>/vault.yml`) — each instance carries its own user list, so
+spqr-project and quouskwe-project never share logins. Onboarding is a data edit,
+not a template edit.
 
 **To approve / add a user:**
 
@@ -163,9 +166,58 @@ so onboarding is a data edit, not a template edit.
 **To revoke a user:** set `disabled: true` on their entry (keeps the record) or
 delete it entirely, then re-run.
 
-This scales fine to a few dozen users. When you outgrow a flat file, Authelia
-can switch its `authentication_backend` to LDAP without changing anything in the
-apps — that is the natural future upgrade path.
+### Changing a password — and why the vault is the source of truth
+
+The `password_hash` in the vault is the **authoritative** copy. The playbook
+renders `users_database.yml` from `authelia_users` on every run and overwrites
+the file inside the container. This has one important consequence:
+
+> **Anything that changes a password *only* inside the container is temporary.**
+> The next `ansible-playbook` run re-renders `users_database.yml` from the vault
+> and reverts to the hash stored there — the user is then locked out with their
+> old password.
+
+So a password change is **not** complete until the new hash is back in the vault.
+There are two ways a password gets changed:
+
+**A. Admin changes it (recommended, works without SMTP).**
+
+1. Generate a new hash:
+   ```bash
+   podman run --rm docker.io/authelia/authelia:4.39 \
+     authelia crypto hash generate argon2 --password 'TheNewPassword'
+   ```
+2. Replace that user's `password_hash` in `host_vars/<host>/vault.yml`:
+   ```bash
+   ansible-vault edit host_vars/spqr-project/vault.yml
+   ```
+3. Re-run the playbook. Done — vault and container now agree.
+
+**B. User self-resets via the portal (requires SMTP configured).**
+
+If `enable_smtp` is on, the portal's *Forgot password?* link emails a reset
+token; completing it rewrites `users_database.yml` **inside the container only**.
+That works immediately, but to make it survive the next deploy you must pull the
+new hash back into the vault:
+
+1. Read the hash Authelia just wrote:
+   ```bash
+   sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
+     podman exec authelia cat /config/users_database.yml
+   ```
+2. Copy that user's new `password` hash into `password_hash` in
+   `host_vars/<host>/vault.yml` (`ansible-vault edit`).
+3. Re-run the playbook so the two stay in sync.
+
+   Until you do step 2–3, treat the reset as provisional: a redeploy will undo
+   it. (Without SMTP there is no self-service reset at all — use method A.)
+
+This file-backend friction is the cost of keeping users in Ansible. It scales
+fine to a few dozen users. When self-service password management becomes a real
+need, switch Authelia's `authentication_backend` from `file` to **LDAP** (e.g.
+lldap/OpenLDAP): users then own their passwords in the directory, the vault no
+longer holds hashes, and the whole revert problem disappears — without touching
+anything in Nextcloud or Forgejo. That is the natural future upgrade path.
 
 ---
 
