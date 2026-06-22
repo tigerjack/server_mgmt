@@ -6,62 +6,97 @@
   <title>Project</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
-    h1, h2 { line-height: 1.2; }
+    h1, h2, h3 { line-height: 1.2; }
     .sso { background: #f4f6f8; border: 1px solid #dde3e8; border-radius: 8px; padding: 1rem 1.25rem; margin-top: 2rem; }
     .sso h2 { margin-top: 0; }
     code { background: #e8ecef; padding: 0.1em 0.35em; border-radius: 4px; }
+    ol li { margin-bottom: 0.5rem; }
+    .note { background: #fff8e1; border-left: 4px solid #f5c400; padding: 0.5rem 0.75rem; border-radius: 0 4px 4px 0; margin: 1rem 0; }
   </style>
 </head>
 <body>
   <h1>This project's storage and code are here:</h1>
   <ul>
-    <li><a href="/cloud">/cloud</a> &ndash; Nextcloud</li>
-    <li><a href="/git">/git</a> &ndash; Forgejo</li>
-    <li><a href="/auth">/auth</a> &ndash; Authelia (single sign-on portal)</li>
+    <li><a href="/cloud">/cloud</a> &ndash; Nextcloud (file storage)</li>
+    <li><a href="/git">/git</a> &ndash; Forgejo (code repository)</li>
+    <li><a href="/auth">/auth</a> &ndash; Authelia (login portal)</li>
     <li><a href="https://spqr.idi.ntnu.no/">https://spqr.idi.ntnu.no/</a> &ndash; Website</li>
   </ul>
 
   <section class="sso">
-    <h2>Signing in with single sign-on (Authelia)</h2>
+    <h2>How to log in</h2>
+
     <p>
-      Both Nextcloud and Forgejo can be accessed with a single shared login
-      provided by <a href="/auth">Authelia</a>. Your account has already been
-      created &mdash; there is no self-service signup, so if you cannot log in,
-      ask the administrator to add you.
+      All access goes through <strong><a href="/auth">Authelia</a></strong>,
+      the single sign-on portal. There is no separate username/password for
+      Nextcloud or Forgejo &mdash; you log in once through Authelia and both
+      apps accept that login. Direct login with a local password is not
+      available for regular users.
     </p>
-    <p><strong>To sign in:</strong></p>
-    <ul>
+
+    <div class="note">
+      No self-service signup. Your account must be created by the administrator
+      before you can log in. If you cannot log in, ask the administrator to add
+      you.
+    </div>
+
+    <h3>First login &mdash; step by step</h3>
+    <ol>
       <li>
-        <strong>Forgejo</strong> &ndash; on the
-        <a href="/git/user/login">login page</a>, click
-        <em>Sign in with authelia</em>. The first time, you may be asked to
-        enter your existing Forgejo password once to link your account to
-        Authelia; after that, the Authelia button is all you need.
+        Go to the <a href="/auth">Authelia portal</a> and sign in with the
+        username and temporary password provided by the administrator.
       </li>
       <li>
-        <strong>Nextcloud</strong> &ndash; on the
-        <a href="/cloud/login">login page</a>, click
-        <em>Log in with Authelia</em>. Your existing files and shares are kept
-        &mdash; the single sign-on simply logs you into the same account.
+        <strong>Change your password immediately:</strong> click
+        <em>Not you?</em> or go back to <a href="/auth">/auth</a>, click
+        <em>Reset password</em>, enter your username, and follow the link
+        sent to your email to set your own password.
       </li>
-    </ul>
+      <li>
+        To access <strong>Nextcloud</strong>: go to
+        <a href="/cloud/login">/cloud</a>, click
+        <em>Log in with Authelia</em>. You will be redirected to the Authelia
+        portal (already logged in from step 1) and returned to Nextcloud
+        automatically.
+      </li>
+      <li>
+        To access <strong>Forgejo</strong>: go to
+        <a href="/git/user/login">/git</a>, click
+        <em>Sign in with authelia</em>. Same flow &mdash; you will be
+        redirected and returned automatically.
+      </li>
+      <li>
+        Once signed in to Authelia, switching between Nextcloud and Forgejo
+        does not require entering your password again.
+      </li>
+    </ol>
+
+    <h3>Subsequent logins</h3>
+    <ol>
+      <li>Go directly to <a href="/cloud">/cloud</a> or <a href="/git">/git</a>.</li>
+      <li>Click <em>Log in with Authelia</em> or <em>Sign in with authelia</em>.</li>
+      <li>
+        If your Authelia session is still active you will be logged in
+        immediately with no password prompt. Otherwise you will be asked to
+        sign in at <a href="/auth">/auth</a> first.
+      </li>
+    </ol>
+
+    <h3>Changing or resetting your password</h3>
     <p>
-      You will be sent to the Authelia portal to enter your username and
-      password, then returned to the app. Once you have signed in to Authelia,
-      moving between the two apps does not require typing your password again.
+      Your Authelia password is the only password you need. To change it:
     </p>
+    <ol>
+      <li>Go to <a href="/auth">/auth</a> and click <em>Reset password</em>.</li>
+      <li>Enter your username and submit.</li>
+      <li>
+        A reset link will be sent to your registered email address. Follow it
+        to set a new password.
+      </li>
+    </ol>
     <p>
-      <strong>First login?</strong> Your account has been created by the
-      administrator with a temporary password. You should change it immediately
-      after your first login: use the <em>Reset password</em> link on the
-      <a href="/auth">Authelia portal</a> to set your own password.
-    </p>
-    <p>
-      Forgot your password, or want to change it? Use the
-      <em>Reset password</em> link on the
-      <a href="/auth">Authelia portal</a>. Enter your username, and a reset
-      link will be sent to your email address. If email is not configured yet,
-      ask the administrator to send you the link manually.
+      If you do not receive the email, ask the administrator to send you the
+      reset link manually.
     </p>
   </section>
 </body>
