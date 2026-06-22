@@ -309,22 +309,78 @@ a different relay. To enable it for one host, add to
 
 ```yaml
 enable_smtp: true
-smtp_host: "smtp.polimi.it"   # your relay
+smtp_host: "smtp-relay.brevo.com"   # your relay — see below
 smtp_port: 587
-smtp_security: "starttls"     # starttls (587) | tls (465) | none (25)
-smtp_from: "noreply@example.com"
+smtp_security: "starttls"           # starttls (587) | tls (465) | none (25)
+smtp_from: "noreply@yourdomain.com" # must be on an authenticated domain
 ```
 
 And in `host_vars/<host>/vault.yml` (encrypted):
 
 ```yaml
-vault_smtp_user:     ""   # leave blank for unauthenticated on-campus relays
-vault_smtp_password: ""
+vault_smtp_user:     "your-relay-login"
+vault_smtp_password: "your-relay-password-or-api-key"
 ```
 
-Without SMTP, Authelia writes password-reset tokens to
-`/config/notification.txt` inside its container. Retrieve the link and
-forward it to the user manually:
+#### Choosing a relay — Brevo (recommended, free)
+
+Direct SMTP from the server IP is rejected by most mail providers. A free
+relay is the practical solution. **[Brevo](https://www.brevo.com)** offers
+300 emails/day (9,000/month) permanently on the free tier, with full SMTP
+relay support — more than enough for password-reset and notification emails
+on a small team server.
+
+**Important:** since February 2024, all major mail providers (Gmail, Outlook,
+university mail servers) require **SPF, DKIM and DMARC** records on the
+sender domain. Mail from an unauthenticated domain is silently dropped or
+rejected. This means:
+
+- You cannot send `From: noreply@<your-polimi-subdomain>` unless Polimi IT
+  adds the DNS records (they are unlikely to do this).
+- **Use a domain you control** for `smtp_from` (e.g. a personal or project
+  domain registered with any registrar). Add the three DNS records Brevo
+  provides in your registrar's DNS panel — this takes minutes and no IT
+  department involvement.
+
+**Setup steps:**
+
+1. Create a free account at [brevo.com](https://www.brevo.com).
+2. Settings → Senders & IP → Domains → **Add a domain** (use a domain you
+   control, not the Polimi subdomain).
+3. Brevo shows three DNS records (SPF, DKIM, DMARC). Add them in your
+   registrar's DNS panel. Notes:
+   - **SPF:** merge with any existing SPF record — never have two SPF TXT
+     records on the same name. Combine as:
+     `v=spf1 include:_spf.aruba.it include:spf.brevo.com ~all`
+   - **DMARC:** if one already exists, merge the two into one record.
+4. Click **Verify** in Brevo (propagation is usually 15–30 min, up to 48h).
+5. Settings → SMTP & API → SMTP → **Generate a new SMTP key**. Copy it
+   (shown only once).
+6. Security → Authorized IPs → add your server's public IP
+   (`curl -sS https://api.ipify.org`), then enable IP blocking.
+7. Fill in `host_vars/<host>/vars.yml` and vault as above, with
+   `smtp_host: "smtp-relay.brevo.com"` and `smtp_from` on your verified
+   domain.
+
+**Test before redeploying** (replace values with your own):
+
+```bash
+swaks \
+  --to 'you@example.com' \
+  --from 'noreply@yourdomain.com' \
+  --server smtp-relay.brevo.com \
+  --port 587 --tls \
+  --auth LOGIN \
+  --auth-user 'your-brevo-email' \
+  --auth-password 'your-smtp-key' \
+  --header 'Subject: Brevo SMTP test' \
+  --body 'Relay is working.'
+```
+
+#### Without SMTP
+
+Authelia writes password-reset tokens to `/config/notification.txt` inside
+its container. Retrieve the link and forward it to the user manually:
 
 ```bash
 sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
