@@ -1,5 +1,7 @@
 ---
-# Rename this file to match your server's hostname, then fill in real values.
+# Example host vars. For a real server, create host_vars/<hostname>/ as a
+# directory containing vars.yml (this file) and vault.yml (encrypted secrets).
+# See host_vars/spqr-project/ for a worked example.
 
 # How Ansible reaches this host
 ansible_host: 203.0.113.10
@@ -9,3 +11,18 @@ ansible_ssh_private_key_file: ~/.ssh/id_ed25519
 # Public domain pointing at this server's IP.
 # Used by Traefik for TLS (Let's Encrypt) and by every app as its base URL.
 domain: "example.com"
+
+# Which static-site directory under roles/static_site/files/ to deploy.
+static_site_dir: "site"
+
+# --- Per-host feature flags (override group_vars/all/vars.yml defaults) ---
+# Uncomment and set to true once the relevant secrets are in vault.yml.
+#
+# enable_authelia: true   # SSO portal at /auth (default: true in group_vars)
+#
+# enable_smtp: true       # outbound email relay
+# smtp_host: "smtp.example.com"
+# smtp_port: 587
+# smtp_security: "starttls"   # starttls (587) | tls (465) | none (25)
+# smtp_from: "noreply@example.com"
+# smtp credentials go in vault.yml: vault_smtp_user / vault_smtp_password

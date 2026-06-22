@@ -39,12 +39,17 @@ nextcloud_phone_region: "IT"
 # this branch behaves exactly like the stable stack until you opt in and fill
 # in the secrets. See EXPERIMENTAL-SSO-SMTP.md for the full walkthrough.
 # ---------------------------------------------------------------------------
+# Global defaults — override any of these per host in host_vars/<host>/vars.yml.
+# Host vars take precedence over group vars, so adding e.g. `enable_smtp: true`
+# to host_vars/spqr-project/vars.yml enables SMTP only for that instance while
+# leaving every other host with SMTP off. Same pattern for smtp_host, etc.
 enable_smtp: false
 enable_authelia: true
 
-# SMTP relay (e.g. the university mail server). Leave smtp_host blank until you
-# know it; nothing is sent while enable_smtp is false.
-smtp_host: ""                 # e.g. "smtp.polimi.it"
+# SMTP relay defaults. Each host that enables SMTP should set smtp_host (and
+# optionally the other values) in its own host_vars/<host>/vars.yml along with
+# credentials in host_vars/<host>/vault.yml (vault_smtp_user/vault_smtp_password).
+smtp_host: ""                 # e.g. "smtp.polimi.it" — set per host
 smtp_port: 587
 smtp_security: "starttls"     # starttls (587) | tls (465) | none (25)
 smtp_from: "noreply@{{ domain }}"

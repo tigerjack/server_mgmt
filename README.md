@@ -294,9 +294,42 @@ rather than creating a duplicate, **provided the email/username match** the
 
 1. Generate secrets (see EXPERIMENTAL-SSO-SMTP.md §2.1) and fill them into the
    per-host vault, along with at least one `authelia_users` entry.
-2. Set `enable_authelia: true` (and optionally `enable_smtp: true`) in
-   `group_vars/all/vars.yml`.
+2. `enable_authelia: true` is already the default in `group_vars/all/vars.yml`.
+   If you turned it off, flip it back there or override it in
+   `host_vars/<host>/vars.yml`.
 3. Run the playbook.
+
+### SMTP relay (per-host, optional)
+
+SMTP enables password-reset emails from Authelia (and mailer support in
+Nextcloud and Forgejo). It is off by default (`enable_smtp: false` in
+`group_vars/all/vars.yml`) and configured **per host** — each instance can use
+a different relay. To enable it for one host, add to
+`host_vars/<host>/vars.yml`:
+
+```yaml
+enable_smtp: true
+smtp_host: "smtp.polimi.it"   # your relay
+smtp_port: 587
+smtp_security: "starttls"     # starttls (587) | tls (465) | none (25)
+smtp_from: "noreply@example.com"
+```
+
+And in `host_vars/<host>/vault.yml` (encrypted):
+
+```yaml
+vault_smtp_user:     ""   # leave blank for unauthenticated on-campus relays
+vault_smtp_password: ""
+```
+
+Without SMTP, Authelia writes password-reset tokens to
+`/config/notification.txt` inside its container. Retrieve the link and
+forward it to the user manually:
+
+```bash
+sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
+  podman exec authelia cat /config/notification.txt
+```
 
 ### Implementation notes (same-host OIDC quirks)
 

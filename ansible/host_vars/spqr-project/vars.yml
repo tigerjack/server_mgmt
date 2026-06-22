@@ -7,3 +7,14 @@ ansible_python_interpreter: /usr/bin/python3.12
 static_site_dir: "site-spqr"
 
 domain: "spqr-project.deib.polimi.it"
+
+# --- SMTP relay (per-host override) ---
+# Set enable_smtp: true here and fill in the relay details once the university
+# SMTP server is available. Credentials go in vault.yml (vault_smtp_user /
+# vault_smtp_password). Leave commented out until ready.
+#
+# enable_smtp: true
+# smtp_host: "smtp.polimi.it"
+# smtp_port: 587
+# smtp_security: "starttls"       # starttls (587) | tls (465) | none (25)
+# smtp_from: "noreply@spqr-project.deib.polimi.it"
