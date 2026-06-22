@@ -8,5 +8,5 @@
 all:
   hosts:
     spqr-project:
-    quouskwe-project:
-    # promethence:    # uncomment when ready
+    # quouskwe-project:    # uncomment and add host_vars/quouskwe-project.yml when ready
+    # promethence:         # uncomment when ready

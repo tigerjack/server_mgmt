@@ -5,10 +5,12 @@ Ansible playbook for managing self-hosted servers running:
 - **Static landing page** at `/`
 - **Nextcloud** at `/cloud`
 - **Forgejo** at `/git` (HTTP) and `:2222` (SSH)
+- **Collabora Online** (document server, secondary)
+- **EuroOffice Document Server** (document server, primary)
 
 Everything runs as rootless Podman containers under a dedicated `containers`
 system user. Traefik handles TLS (Let's Encrypt HTTP-01) and reverse-proxies
-all three services from a single domain.
+all services from a single domain.
 
 ---
 
@@ -162,18 +164,45 @@ Host example.com
     Port 2222
 ```
 
+### `collabora`
+
+Collabora Online document server (secondary). Connected to Nextcloud via the
+`richdocuments` app. Runs on the internal `edge` network; not exposed directly.
+
+### `eurooffice`
+
+EuroOffice Document Server (primary, ONLYOFFICE-compatible). Connected to
+Nextcloud via the `eurooffice` app. Like Collabora it runs on the internal
+network only. Both document servers are deployed; Nextcloud uses EuroOffice
+by default — Collabora is available as a fallback.
+
 ---
 
 ## After deployment
 
-### Let's Encrypt staging vs production
+### Let's Encrypt certificates
 
-Traefik defaults to the **Let's Encrypt staging CA** (untrusted certs, no rate
-limits). Once you confirm everything is working, switch to production by editing
-`roles/traefik/main.yml` and changing the `--certificatesresolvers.letsencrypt.acme.caserver`
-line (or removing it — production is the default when not specified), then
-re-run the traefik role and delete the old `acme.json` so a fresh certificate
-is issued.
+Traefik requests certificates from **Let's Encrypt production** immediately on
+first deploy. Certificates are stored in `/etc/traefik/letsencrypt/acme.json`
+on the host (bind-mounted into the Traefik container) and renewed automatically.
+
+If you want to test the stack before going live (e.g. to avoid hitting
+Let's Encrypt's rate limits during iteration), add the staging CA flag to the
+`Run traefik` task in `roles/traefik/tasks/main.yml`:
+
+```yaml
+- "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+```
+
+Staging issues untrusted certs but has no rate limits. When you're ready for
+production, remove that line, re-run the traefik role, and delete `acme.json`
+so a fresh certificate is requested:
+
+```sh
+# On the server, as the containers user:
+rm /etc/traefik/letsencrypt/acme.json
+systemctl --user restart container-traefik.service
+```
 
 ### Automatic image updates
 
@@ -206,11 +235,13 @@ ansible/
     example-server.yml     # Template for per-server config (copy and rename)
     <your-server>.yml      # One file per managed server
   roles/
-    traefik/tasks/main.yml       # Reverse proxy + TLS
-    static_site/tasks/main.yml   # Landing page (nginx)
-    static_site/files/site/index.html   # Landing page HTML - edit freely
-    nextcloud/tasks/main.yml     # Nextcloud + MariaDB + Valkey
-    forgejo/tasks/main.yml       # Forgejo + MariaDB
+    traefik/tasks/main.yml            # Reverse proxy + TLS
+    static_site/tasks/main.yml        # Landing page (nginx)
+    static_site/files/site/index.html # Landing page HTML - edit freely
+    nextcloud/tasks/main.yml          # Nextcloud + MariaDB + Valkey
+    forgejo/tasks/main.yml            # Forgejo + MariaDB
+    collabora/tasks/main.yml          # Collabora Online document server
+    eurooffice/tasks/main.yml         # EuroOffice document server (primary)
 README.md                  # This file
 PODMAN-README.md           # One-time host setup (rootless Podman + containers user)
 ```
