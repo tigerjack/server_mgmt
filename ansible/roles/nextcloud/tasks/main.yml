@@ -380,6 +380,21 @@
     label: "{{ item.key }}"
 
 # --- EXPERIMENTAL: Authelia OIDC login (enable_authelia) ---
+- name: Allow Nextcloud's HTTP client to reach the same-host Authelia endpoint
+  become: true
+  become_user: "{{ containers_user }}"
+  # Authelia is served on this same host, so its discovery URL resolves to the
+  # host IP. Nextcloud's HTTP client blocks requests to local/private addresses
+  # by default (SSRF protection), raising LocalServerException and the browser
+  # "Could not reach the OpenID Connect provider" error. user_oidc fetches that
+  # URL server-side, so this must be allowed. Scoped to the same-host SSO setup.
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user www-data nextcloud php /var/www/html/occ
+      config:system:set allow_local_remote_servers --value=true --type=boolean
+  changed_when: true
+  when: enable_authelia | default(false)
+
 - name: Install the user_oidc app for Authelia single sign-on
   become: true
   become_user: "{{ containers_user }}"
