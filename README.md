@@ -219,6 +219,76 @@ complete, then repeat for the next major version.
 
 ---
 
+## Nextcloud subpath install notes
+
+Nextcloud does not officially support running under a subpath (`/cloud` instead
+of the domain root). The setup works in practice but requires several hacks that
+are all baked into the role — documented here so you know what to touch if
+something breaks after a Nextcloud upgrade.
+
+### 1. Traefik StripPrefix + OVERWRITE* env vars (the core trick)
+
+Traefik routes `https://<domain>/cloud/…` to the Nextcloud container but
+**strips the `/cloud` prefix** before forwarding, so Nextcloud receives every
+request at `/` (which is what it expects). Nextcloud then rebuilds all URLs it
+generates using three env vars:
+
+| Env var | Value | Purpose |
+|---|---|---|
+| `OVERWRITEWEBROOT` | `/cloud` | Prepends `/cloud` to every internal URL Nextcloud generates |
+| `OVERWRITEHOST` | `<domain>` | Overrides the `Host` Nextcloud sees (needed behind a proxy) |
+| `OVERWRITEPROTOCOL` | `https` | Forces HTTPS in generated URLs regardless of what reaches the container |
+
+Without `OVERWRITEWEBROOT`, Nextcloud would generate links pointing at the
+domain root and all redirects and asset URLs would break.
+
+### 2. CLI URL (overwrite.cli.url)
+
+The `overwrite.cli.url` system config is set to `https://<domain>/cloud/` via
+`occ config:system:set`. This is used by background jobs and CLI commands that
+need to generate absolute URLs outside of an HTTP request context. Without it,
+cron jobs and some admin self-checks emit bare-domain URLs.
+
+> **Known cosmetic issue:** the container cannot reach the public URL from inside
+> itself (hairpin NAT). Some admin panel self-tests will show "could not check"
+> or "not reachable" — the actual features work fine; only internal reachability
+> tests are affected.
+
+### 3. Federation discovery routes at the domain root
+
+Two Nextcloud endpoints (`/ocm-provider` and `/ocs-provider`) must be served at
+the **domain root**, not under `/cloud`, for federation with other Nextcloud
+instances. They each get their own Traefik router with no StripPrefix, so
+requests go straight to Nextcloud unmodified. Attempting to combine these into
+one router with an `||` rule in the Traefik label causes Traefik v3 to silently
+reject the entire container's label set, so they are intentionally two separate
+routers.
+
+### 4. notify_push (Client Push) path
+
+The high-performance push daemon runs inside the Nextcloud container on port
+7867. Its public path is `https://<domain>/cloud/push`, stripped to `/` before
+reaching the daemon. This requires a dedicated Traefik router+service with its
+own StripPrefix (`/cloud/push`). With two services on one container (port 80 and
+port 7867), Traefik v3 requires **explicit `traefik.http.routers.*.service`
+labels** on all routers — without them Traefik refuses to auto-link any router
+and silently drops them all.
+
+### What to check after a Nextcloud major upgrade
+
+If things break after bumping the image tag, go through this list:
+
+1. Check `OVERWRITEWEBROOT` is still respected (some major versions change how
+   the env var is read — verify links in the UI include `/cloud`).
+2. Check `/ocm-provider` and `/ocs-provider` still resolve at the domain root.
+3. Check `/cloud/push` returns HTTP 200 (`curl -I https://<domain>/cloud/push`).
+4. If the admin panel shows new warnings, run:
+   ```sh
+   podman exec --user www-data nextcloud php /var/www/html/occ maintenance:repair --include-expensive
+   ```
+
+---
+
 ## Repository structure
 
 ```
