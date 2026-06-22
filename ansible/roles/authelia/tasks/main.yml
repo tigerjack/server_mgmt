@@ -51,15 +51,22 @@
       - edge
     volume:
       - /etc/authelia:/config:Z
-    env:
-      # Non-secret config lives in configuration.yml; secrets come in as env
-      # so they never touch disk in plaintext. Authelia maps these names to
-      # the equivalent nested config keys automatically.
-      AUTHELIA_SESSION_SECRET: "{{ vault_authelia_session_secret }}"
-      AUTHELIA_STORAGE_ENCRYPTION_KEY: "{{ vault_authelia_storage_encryption_key }}"
-      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET: "{{ vault_authelia_jwt_secret }}"
-      AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET: "{{ vault_authelia_oidc_hmac_secret }}"
-      AUTHELIA_NOTIFIER_SMTP_PASSWORD: "{{ vault_smtp_password | default('') }}"
+    # Built as a dict so the SMTP password env var is only present when SMTP is
+    # enabled. Authelia treats the mere presence of AUTHELIA_NOTIFIER_SMTP_*
+    # (even empty) as "smtp notifier configured", which then fatally collides
+    # with the filesystem notifier the template renders when SMTP is off.
+    env: >-
+      {{
+        {
+          'AUTHELIA_SESSION_SECRET': vault_authelia_session_secret,
+          'AUTHELIA_STORAGE_ENCRYPTION_KEY': vault_authelia_storage_encryption_key,
+          'AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET': vault_authelia_jwt_secret,
+          'AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET': vault_authelia_oidc_hmac_secret
+        } | combine(
+          {'AUTHELIA_NOTIFIER_SMTP_PASSWORD': vault_smtp_password | default('')}
+          if (enable_smtp | default(false)) else {}
+        )
+      }}
     label:
       io.containers.autoupdate: "registry"
       traefik.enable: "true"
