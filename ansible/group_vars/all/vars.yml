@@ -1,0 +1,34 @@
+---
+# Privilege escalation - login as your personal user, sudo to root for tasks
+# that need it. Run playbooks with --ask-become-pass (or store the password
+# in the vault as vault_become_pass and set ansible_become_pass: "{{ vault_become_pass }}").
+ansible_become: true
+ansible_become_method: sudo
+
+# User that owns all containers. Must already exist on the host with
+# lingering enabled - see PODMAN-README.md for setup.
+containers_user: containers
+
+# Directory name inside roles/static_site/files/ to deploy as the landing page.
+# Override per host in host_vars/<hostname>.yml to give each server its own site.
+static_site_dir: "site"
+
+# Subnet for the shared edge network (traefik + app front ends).
+# Change if it conflicts with an existing network on your hosts.
+edge_network_subnet: "10.89.0.0/24"
+
+# Container images - pinned to major.minor, patched automatically by
+# podman-auto-update. Bump major.minor deliberately after reading release notes.
+traefik_image:           "docker.io/traefik:3.3"
+static_site_image:       "docker.io/nginx:1.27-alpine"
+nextcloud_image:         "docker.io/nextcloud:34-apache"
+nextcloud_db_image:      "docker.io/mariadb:11.4"
+nextcloud_valkey_image:  "docker.io/valkey/valkey:8-alpine"
+forgejo_image:           "codeberg.org/forgejo/forgejo:9"
+forgejo_db_image:        "docker.io/mariadb:11.4"
+collabora_image:         "docker.io/collabora/code:latest"
+eurooffice_ds_image:     "ghcr.io/euro-office/documentserver:latest"
+
+# ISO 3166-1 alpha-2 region code used to validate phone numbers without a
+# country code in Nextcloud profile settings. Change to match your region.
+nextcloud_phone_region: "IT"

@@ -1,0 +1,11 @@
+# Ansible vault password file - never commit this
+.vault_pass
+ansible/group_vars/all/vault.yml
+
+# Retry files left by failed ansible runs
+*.retry
+
+# Editor and OS noise
+.DS_Store
+*~
+*.swp

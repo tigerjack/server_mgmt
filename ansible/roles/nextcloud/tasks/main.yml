@@ -1,0 +1,352 @@
+---
+- name: Stop nextcloud containers if already running
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: "container-{{ item }}.service"
+    state: stopped
+  loop:
+    - nextcloud
+    - db_nextcloud
+    - valkey_nextcloud
+  failed_when: false
+
+- name: Create podman volumes for nextcloud
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_volume:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - nextcloud-html
+    - nextcloud-data
+    - nextcloud-config
+    - nextcloud-db
+    - nextcloud-valkey
+
+- name: Create nextcloud's internal database network
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_network:
+    name: mariadb-nextcloud
+    state: present
+
+- name: Create nextcloud's internal valkey network
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_network:
+    name: valkey-nextcloud
+    state: present
+
+- name: Run nextcloud's mariadb
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true
+  containers.podman.podman_container:
+    name: db_nextcloud
+    image: "{{ nextcloud_db_image }}"
+    state: present
+    command:
+      - "--transaction-isolation=READ-COMMITTED"
+      - "--binlog-format=ROW"
+    volume:
+      - nextcloud-db:/var/lib/mysql
+    network:
+      - mariadb-nextcloud
+    env:
+      MARIADB_ROOT_PASSWORD: "{{ vault_nextcloud_db_root_password }}"
+      MARIADB_DATABASE:      "{{ vault_nextcloud_db_database }}"
+      MARIADB_USER:          "{{ vault_nextcloud_db_user }}"
+      MARIADB_PASSWORD:      "{{ vault_nextcloud_db_password }}"
+      MARIADB_AUTO_UPGRADE:  "true"
+    label:
+      io.containers.autoupdate: "registry"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      names: true
+      new: true
+
+- name: Run valkey for nextcloud session locking and caching
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true
+  containers.podman.podman_container:
+    name: valkey_nextcloud
+    image: "{{ nextcloud_valkey_image }}"
+    state: present
+    command:
+      - "valkey-server"
+      - "--save"
+      - ""        # disable persistence - this is a cache, not a store
+      - "--loglevel"
+      - "warning"
+    volume:
+      - nextcloud-valkey:/data
+    network:
+      - valkey-nextcloud
+    label:
+      io.containers.autoupdate: "registry"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      names: true
+      new: true
+
+- name: Run nextcloud
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true
+  containers.podman.podman_container:
+    name: nextcloud
+    image: "{{ nextcloud_image }}"
+    state: present
+    volume:
+      - nextcloud-html:/var/www/html
+      - nextcloud-data:/var/www/html/data
+      - nextcloud-config:/var/www/html/config
+    network:
+      - edge
+      - mariadb-nextcloud
+      - valkey-nextcloud
+    env:
+      # Database
+      MYSQL_HOST:     "db_nextcloud"
+      MYSQL_DATABASE: "{{ vault_nextcloud_db_database }}"
+      MYSQL_USER:     "{{ vault_nextcloud_db_user }}"
+      MYSQL_PASSWORD: "{{ vault_nextcloud_db_password }}"
+      # Redis-compatible session locking and caching via Valkey
+      REDIS_HOST: "valkey_nextcloud"
+      # Admin account (only used on first install)
+      NEXTCLOUD_ADMIN_USER:     "{{ vault_nextcloud_admin_user }}"
+      NEXTCLOUD_ADMIN_PASSWORD: "{{ vault_nextcloud_admin_password }}"
+      # Tell Nextcloud it lives at /cloud even though Traefik strips
+      # that prefix before forwarding requests. OVERWRITEWEBROOT puts it
+      # back into every URL and redirect Nextcloud generates.
+      OVERWRITEWEBROOT:   "/cloud"
+      OVERWRITEPROTOCOL:  "https"
+      OVERWRITEHOST:      "{{ domain }}"
+      # Trust the Traefik container as a reverse proxy (necessary for
+      # Nextcloud to accept X-Forwarded-* headers and not flag the
+      # setup as "accessed via untrusted domain").
+      TRUSTED_PROXIES: "10.89.0.0/24"
+      NEXTCLOUD_TRUSTED_DOMAINS: "{{ domain }}"
+    label:
+      io.containers.autoupdate: "registry"
+      traefik.enable: "true"
+      traefik.http.routers.nextcloud.entrypoints: "websecure"
+      traefik.http.routers.nextcloud.rule: "Host(`{{ domain }}`) && PathPrefix(`/cloud`)"
+      traefik.http.routers.nextcloud.tls: "true"
+      traefik.http.routers.nextcloud.tls.certresolver: "letsencrypt"
+      # Strip /cloud before forwarding - Nextcloud expects requests at /
+      # and reconstructs /cloud URLs itself via OVERWRITEWEBROOT above.
+      traefik.http.routers.nextcloud.middlewares: "nextcloud-strip"
+      # Explicit service binding required when multiple services are defined on
+      # the same container - Traefik v3 refuses to auto-link in that case.
+      traefik.http.routers.nextcloud.service: "nextcloud"
+      traefik.http.middlewares.nextcloud-strip.stripprefix.prefixes: "/cloud"
+      traefik.http.services.nextcloud.loadbalancer.server.port: "80"
+      # Federation discovery endpoints live at the domain root (not under /cloud).
+      # Route them to Nextcloud without stripping - Apache handles them natively.
+      # Split into two routers to avoid || in label values (Traefik rejects the
+      # entire container's labels if any rule fails to parse).
+      traefik.http.routers.nextcloud-ocm.entrypoints: "websecure"
+      traefik.http.routers.nextcloud-ocm.rule: "Host(`{{ domain }}`) && PathPrefix(`/ocm-provider`)"
+      traefik.http.routers.nextcloud-ocm.tls: "true"
+      traefik.http.routers.nextcloud-ocm.tls.certresolver: "letsencrypt"
+      traefik.http.routers.nextcloud-ocm.service: "nextcloud"
+      traefik.http.routers.nextcloud-ocs.entrypoints: "websecure"
+      traefik.http.routers.nextcloud-ocs.rule: "Host(`{{ domain }}`) && PathPrefix(`/ocs-provider`)"
+      traefik.http.routers.nextcloud-ocs.tls: "true"
+      traefik.http.routers.nextcloud-ocs.tls.certresolver: "letsencrypt"
+      traefik.http.routers.nextcloud-ocs.service: "nextcloud"
+      # notify_push daemon (Client Push) listens on port 7867 inside the container.
+      traefik.http.routers.nextcloud-push.entrypoints: "websecure"
+      traefik.http.routers.nextcloud-push.rule: "Host(`{{ domain }}`) && PathPrefix(`/cloud/push`)"
+      traefik.http.routers.nextcloud-push.tls: "true"
+      traefik.http.routers.nextcloud-push.tls.certresolver: "letsencrypt"
+      traefik.http.routers.nextcloud-push.middlewares: "nextcloud-push-strip"
+      traefik.http.middlewares.nextcloud-push-strip.stripprefix.prefixes: "/cloud/push"
+      traefik.http.routers.nextcloud-push.service: "nextcloud-push"
+      traefik.http.services.nextcloud-push.loadbalancer.server.port: "7867"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      requires:
+        - container-db_nextcloud.service
+        - container-valkey_nextcloud.service
+      names: true
+      new: true
+
+- name: Add boot-ordering dependency on traefik to nextcloud unit (no cascade stop)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.lineinfile:
+    path: "/home/{{ containers_user }}/.config/systemd/user/container-nextcloud.service"
+    regexp: "^{{ item.key }}=container-traefik\\.service"
+    line: "{{ item.key }}=container-traefik.service"
+    insertbefore: "^\\[Service\\]"
+    state: present
+  loop:
+    - {key: Wants}
+    - {key: After}
+
+- name: Tune nextcloud systemd start/stop timeouts
+  become: true
+  community.general.ini_file:
+    path: "/home/{{ containers_user }}/.config/systemd/user/container-{{ item.0 }}.service"
+    section: Service
+    option: "{{ item.1 }}"
+    value: 3600
+    mode: "0644"
+    state: present
+    no_extra_spaces: true
+  loop: "{{ ['nextcloud', 'db_nextcloud', 'valkey_nextcloud'] | product(['TimeoutStartSec', 'TimeoutStopSec']) | list }}"
+  loop_control:
+    label: "{{ item.0 }}:{{ item.1 }}"
+
+- name: Start nextcloud db and cache first
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: "container-{{ item }}.service"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - db_nextcloud
+    - valkey_nextcloud
+
+- name: Wait for nextcloud MariaDB to be ready before starting nextcloud
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec db_nextcloud mariadb-admin ping -h localhost --silent
+  register: nc_db_ping
+  retries: 30
+  delay: 3
+  until: nc_db_ping.rc == 0
+  changed_when: false
+
+- name: Start nextcloud
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-nextcloud.service
+    enabled: true
+    state: started
+
+- name: Install Nextcloud apps from the app store
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:install {{ item }}
+  register: nc_app_install
+  changed_when: "'installed' in nc_app_install.stdout"
+  failed_when: nc_app_install.rc != 0 and 'already installed' not in nc_app_install.stdout
+  retries: 5
+  delay: 10
+  until: nc_app_install.rc == 0 or 'already installed' in nc_app_install.stdout
+  loop:
+    - spreed          # Talk
+    - eurooffice      # EuroOffice document editor (ONLYOFFICE fork) — primary
+    - richdocuments   # Collabora Online connector — secondary
+    - contacts
+    - contactsinteraction
+    - groupfolders    # "Team folders" in the UI — shared group storage
+
+- name: Enable bundled Nextcloud apps (shipped with NC but disabled by default)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:enable {{ item }}
+  changed_when: true
+  failed_when: false
+  loop:
+    - encryption     # Default encryption module
+
+- name: Disable unwanted bundled apps
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:disable {{ item }}
+  changed_when: true
+  failed_when: false
+  loop:
+    - photos
+
+- name: Enable notify_push (Client Push — bundled with Nextcloud, disabled by default)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:enable notify_push
+  changed_when: true
+  failed_when: false
+
+- name: Configure notify_push endpoint
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user www-data nextcloud php /var/www/html/occ
+      notify_push:setup https://{{ domain }}/cloud/push
+  changed_when: true
+  failed_when: false
+
+- name: Configure EuroOffice document server connection (primary editor)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user www-data nextcloud php /var/www/html/occ
+      config:app:set eurooffice {{ item.key }} --value="{{ item.value }}"
+  changed_when: true
+  loop:
+    - {key: DocumentServerUrl, value: "https://{{ domain }}/eurooffice-ds/"}
+    - {key: jwt_secret,        value: "{{ vault_eurooffice_jwt_secret }}"}
+  loop_control:
+    label: "eurooffice.{{ item.key }}"
+
+- name: Configure Collabora connection (secondary editor)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user www-data nextcloud php /var/www/html/occ
+      config:app:set richdocuments wopi_url --value="https://{{ domain }}"
+  changed_when: true
+
+# System config
+- name: Configure Nextcloud system settings
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user www-data nextcloud php /var/www/html/occ
+      config:system:set {{ item.key }} {{ item.extra | default('') }} --value="{{ item.value }}"
+  changed_when: true
+  loop:
+    # Used by CLI and some admin checks. The container can't reach the public
+    # HTTPS URL from inside (hairpin NAT), so some admin self-tests will still
+    # show "could not check" — the actual features work fine.
+    - key: overwrite.cli.url
+      value: "https://{{ domain }}/cloud/"
+    # Run heavy background jobs at 1 AM to avoid impacting users
+    - key: maintenance_window_start
+      extra: "--type=integer"
+      value: "1"
+    # Validate phone numbers in profiles without a country code prefix
+    - key: default_phone_region
+      value: "{{ nextcloud_phone_region }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Run Nextcloud mimetype migrations (one-time; no-op if already done)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ maintenance:repair --include-expensive
+  changed_when: false

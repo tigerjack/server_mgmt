@@ -1,0 +1,227 @@
+---
+- name: Stop forgejo containers
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: "container-{{ item }}.service"
+    state: stopped
+  loop:
+    - forgejo
+    - db_forgejo
+  failed_when: false
+
+- name: Create podman volumes for forgejo
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_volume:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - forgejo-data
+    - forgejo-db
+
+- name: Create forgejo's internal db network
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_network:
+    name: mariadb-forgejo
+    state: present
+
+- name: Run forgejo's mariadb
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true
+  containers.podman.podman_container:
+    name: db_forgejo
+    image: "{{ forgejo_db_image }}"
+    state: present
+    command:
+      - "--transaction-isolation=READ-COMMITTED"
+      - "--binlog-format=ROW"
+    volume:
+      - forgejo-db:/var/lib/mysql
+    network:
+      - mariadb-forgejo
+    env:
+      MARIADB_ROOT_PASSWORD: "{{ vault_forgejo_db_root_password }}"
+      MARIADB_DATABASE: "{{ vault_forgejo_db_database }}"
+      MARIADB_USER: "{{ vault_forgejo_db_user }}"
+      MARIADB_PASSWORD: "{{ vault_forgejo_db_password }}"
+      MARIADB_AUTO_UPGRADE: "true"
+    label:
+      io.containers.autoupdate: "registry"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      names: true
+      new: true
+
+# Kept as a separate mariadb instance rather than a second database on
+# nextcloud's, by design: a touch heavier on RAM, but it means you can
+# restart or upgrade either app's database independently, and a problem
+# with one project's data can't take the other project down with it.
+# If resources are tight, sharing one mariadb engine with a second
+# database/user is a reasonable alternative - just swap db_forgejo's
+# network/host for mariadb-nextcloud/db_nextcloud and drop this container.
+- name: Run forgejo
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true
+  containers.podman.podman_container:
+    name: forgejo
+    image: "{{ forgejo_image }}"
+    state: present
+    # The standard forgejo image (not the -rootless variant) keeps ALL of its
+    # persistent state under /data: repositories at /data/git/repositories,
+    # avatars at /data/gitea/avatars, and app.ini at /data/gitea/conf/app.ini.
+    # This MUST be a named volume mounted at /data - if it isn't, the image's
+    # `VOLUME /data` makes podman create a throwaway anonymous volume, and with
+    # generate_systemd new:true every deploy runs `podman run --rm`, wiping it
+    # (repos become unreadable, avatars vanish). /var/lib/gitea and /etc/gitea
+    # are the -rootless image's paths and are unused here.
+    volume:
+      - forgejo-data:/data
+    network:
+      - edge
+      - mariadb-forgejo
+    label:
+      io.containers.autoupdate: "registry"
+      traefik.enable: "true"
+      traefik.http.routers.forgejo.entrypoints: "websecure"
+      traefik.http.routers.forgejo.rule: "Host(`{{ domain }}`) && PathPrefix(`/git`)"
+      traefik.http.routers.forgejo.tls: "true"
+      traefik.http.routers.forgejo.tls.certresolver: "letsencrypt"
+      traefik.http.routers.forgejo.middlewares: "forgejo-strip"
+      traefik.http.middlewares.forgejo-strip.stripprefix.prefixes: "/git"
+      traefik.http.services.forgejo.loadbalancer.server.port: "3000"
+      # Plain TCP passthrough for git-over-ssh on the dedicated gitssh
+      # entrypoint (:2222) defined in the traefik role. HostSNI(`*`) is
+      # the required catch-all rule for non-TLS TCP routing in traefik -
+      # there's no real SNI to match against on a plain SSH connection.
+      traefik.tcp.routers.forgejo-ssh.rule: "HostSNI(`*`)"
+      traefik.tcp.routers.forgejo-ssh.entrypoints: "gitssh"
+      traefik.tcp.routers.forgejo-ssh.service: "forgejo-ssh"
+      traefik.tcp.services.forgejo-ssh.loadbalancer.server.port: "2222"
+    env:
+      FORGEJO__database__DB_TYPE: "mysql"
+      FORGEJO__database__HOST: "db_forgejo:3306"
+      FORGEJO__database__NAME: "{{ vault_forgejo_db_database }}"
+      FORGEJO__database__USER: "{{ vault_forgejo_db_user }}"
+      FORGEJO__database__PASSWD: "{{ vault_forgejo_db_password }}"
+      FORGEJO__server__DOMAIN: "{{ domain }}"
+      FORGEJO__server__ROOT_URL: "https://{{ domain }}/git/"
+      FORGEJO__server__SSH_DOMAIN: "{{ domain }}"
+      FORGEJO__server__SSH_PORT: "2222"
+      FORGEJO__server__SSH_LISTEN_PORT: "2222"
+      FORGEJO__server__START_SSH_SERVER: "true"
+      # Database is fully configured above, so skip the web installer
+      # entirely rather than leaving the instance sitting unconfigured.
+      FORGEJO__security__INSTALL_LOCK: "true"
+      # Personal/team forge, not a public signup service - flip this if
+      # you actually want open registration.
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      requires:
+        - container-db_forgejo.service
+      names: true
+      new: true
+
+- name: Add boot-ordering dependency on traefik to forgejo unit (no cascade stop)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.lineinfile:
+    path: "/home/{{ containers_user }}/.config/systemd/user/container-forgejo.service"
+    regexp: "^{{ item.key }}=container-traefik\\.service"
+    line: "{{ item.key }}=container-traefik.service"
+    insertbefore: "^\\[Service\\]"
+    state: present
+  loop:
+    - {key: Wants}
+    - {key: After}
+
+- name: Tune forgejo systemd start/stop timeouts
+  become: true
+  become_user: "{{ containers_user }}"
+  community.general.ini_file:
+    path: "/home/{{ containers_user }}/.config/systemd/user/container-{{ item.0 }}.service"
+    section: Service
+    option: "{{ item.1 }}"
+    value: 3600
+    mode: "0644"
+    state: present
+    no_extra_spaces: true
+  loop: "{{ ['forgejo', 'db_forgejo'] | product(['TimeoutStartSec', 'TimeoutStopSec']) | list }}"
+  loop_control:
+    label: "{{ item.0 }}:{{ item.1 }}"
+
+- name: Start forgejo containers at boot (db first)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: "container-{{ item }}.service"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - db_forgejo
+    - forgejo
+
+# Guardrail for the anonymous-volume data-loss bug: forgejo's persistent
+# state lives under /data, so that path MUST be backed by the forgejo-data
+# named volume. If anything ever regresses the mount (wrong path, image
+# variant change), podman silently falls back to a throwaway anonymous
+# volume that generate_systemd new:true wipes on every deploy. Assert the
+# mount is correct and fail loudly here rather than lose data silently.
+- name: Inspect forgejo mounts to verify /data persistence
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >-
+      {% raw %}podman inspect forgejo --format '{{ range .Mounts }}{{ .Type }}:{{ .Name }}->{{ .Destination }}{{ println }}{{ end }}'{% endraw %}
+  register: forgejo_mounts
+  changed_when: false
+
+- name: Assert /data is backed by the forgejo-data named volume
+  ansible.builtin.assert:
+    that:
+      - "'volume:forgejo-data->/data' in forgejo_mounts.stdout"
+    fail_msg: >-
+      forgejo /data is NOT backed by the forgejo-data named volume - it would
+      ride on a throwaway anonymous volume and be wiped on the next deploy
+      (repos unreadable, avatars lost). Actual mounts:
+      {{ forgejo_mounts.stdout }}
+    success_msg: "forgejo /data is correctly backed by the forgejo-data named volume."
+
+- name: Ensure forgejo has an admin account (no-op once it already exists)
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user git forgejo forgejo admin user create
+      --username {{ vault_forgejo_admin_user }}
+      --password {{ vault_forgejo_admin_password }}
+      --email {{ vault_forgejo_admin_email }}
+      --admin --must-change-password=false
+  register: forgejo_admin_create
+  # Retry to give MariaDB time to finish starting up
+  retries: 10
+  delay: 6
+  until: forgejo_admin_create.rc == 0 or 'already exists' in forgejo_admin_create.stderr
+  changed_when: "'already exists' not in forgejo_admin_create.stderr"
+  failed_when: forgejo_admin_create.rc != 0 and 'already exists' not in forgejo_admin_create.stderr
+
+- name: Regenerate git hooks in all repositories
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user git forgejo forgejo admin regenerate hooks
+  changed_when: false
+  retries: 5
+  delay: 6
+  register: forgejo_regen_hooks
+  until: forgejo_regen_hooks.rc == 0

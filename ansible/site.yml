@@ -18,3 +18,24 @@
   hosts: all
   roles:
     - forgejo
+
+- name: Collabora Online (secondary document server)
+  hosts: all
+  roles:
+    - collabora
+
+- name: EuroOffice Document Server (primary document server)
+  hosts: all
+  roles:
+    - eurooffice
+
+- name: Restart Traefik so it queries all containers after they are all up
+  hosts: all
+  become: true
+  become_user: "{{ containers_user }}"
+  tasks:
+    - name: Restart traefik
+      ansible.builtin.systemd:
+        scope: user
+        name: container-traefik.service
+        state: restarted

@@ -1,0 +1,9 @@
+---
+ansible_host: spqr-project.deib.polimi.it
+ansible_user: sperriello
+ansible_ssh_private_key_file: ~/.ssh/promethence_2026
+ansible_python_interpreter: /usr/bin/python3.12
+
+static_site_dir: "site-spqr"
+
+domain: "spqr-project.deib.polimi.it"

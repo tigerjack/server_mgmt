@@ -1,0 +1,17 @@
+http:
+  middlewares:
+    security-headers:
+      headers:
+        # HSTS - tell browsers to always use HTTPS for 2 years
+        stsSeconds: 63072000
+        stsIncludeSubdomains: true
+        forceSTSHeader: true
+        # Prevent MIME-type sniffing
+        contentTypeNosniff: true
+        # Limit referrer info sent to third parties
+        referrerPolicy: "strict-origin-when-cross-origin"
+        # Deny embedding in frames from other origins (protects all apps)
+        customResponseHeaders:
+          X-Frame-Options: "SAMEORIGIN"
+          X-XSS-Protection: "1; mode=block"
+          Permissions-Policy: "camera=(), microphone=(), geolocation=()"
