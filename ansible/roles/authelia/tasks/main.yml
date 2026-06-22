@@ -134,3 +134,17 @@
     enabled: true
     state: started
     daemon_reload: true
+
+# Authelia was just (re)created, so it has a fresh container IP. Traefik only
+# learns the new backend when it re-queries, so until it does, /auth returns
+# 502 Bad Gateway. The Forgejo role's OIDC step fetches the Authelia discovery
+# URL through Traefik during this same run, so refresh Traefik now rather than
+# waiting for the end-of-play restart (which the OIDC step would race ahead of).
+- name: Restart traefik so it picks up the new authelia backend
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-traefik.service
+    state: restarted
+  failed_when: false

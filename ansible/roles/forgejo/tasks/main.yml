@@ -88,10 +88,12 @@
     # The host's /etc/hostname maps the FQDN to 127.0.1.1, which Podman copies
     # into the container's /etc/hosts. Without this override, back-channel OIDC
     # calls (discovery fetch, token exchange) dial 127.0.1.1:443 and get
-    # "connection refused". Mapping the domain to the real host IP lets those
-    # calls reach Traefik's published 443 with a valid TLS cert.
-    etc_hosts:
-      "{{ domain }}": "{{ ansible_default_ipv4.address }}"
+    # "connection refused". Podman *prepends* --add-host entries, so this one
+    # wins over the copied 127.0.1.1 line and the domain resolves to the real
+    # host IP, where Traefik's published 443 serves a valid cert.
+    # NOTE: build the dict via a single Jinja expression so the *key* (domain)
+    # is templated - "{{ domain }}": ... leaves the key literal.
+    etc_hosts: "{{ {domain: ansible_default_ipv4.address} }}"
     label:
       io.containers.autoupdate: "registry"
       traefik.enable: "true"
@@ -255,7 +257,7 @@
 - name: Add Authelia as a Forgejo OIDC login source
   become: true
   become_user: "{{ containers_user }}"
-  no_log: false   # TEMPORARY - remove after debugging
+  no_log: true
   ansible.builtin.command:
     cmd: >
       podman exec --user git forgejo forgejo admin auth add-oauth
@@ -263,7 +265,7 @@
       --provider openidConnect
       --key forgejo
       --secret {{ vault_oidc_forgejo_client_secret }}
-      --auto-discover-url http://authelia:9091{{ authelia_subpath }}/.well-known/openid-configuration
+      --auto-discover-url https://{{ domain }}{{ authelia_subpath }}/.well-known/openid-configuration
       --scopes "openid profile email groups"
   changed_when: true
   when:
