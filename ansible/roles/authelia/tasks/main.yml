@@ -1,6 +1,29 @@
 ---
 # EXPERIMENTAL - Authelia identity provider (OIDC) + forward-auth.
 # Only runs when enable_authelia is true. See EXPERIMENTAL-SSO-SMTP.md.
+
+# Validate the user list up front: Authelia refuses to boot if any user is
+# missing a required field, and because generate_systemd new:true uses
+# `podman run --rm` the failing container is removed before you can read its
+# logs. Fail here with a clear message instead.
+- name: Assert every authelia_users entry is complete
+  ansible.builtin.assert:
+    that:
+      - item.username | default('') | length > 0
+      - item.email | default('') | length > 0
+      - item.password_hash | default('') | length > 0
+      - item.password_hash | default('') is match('^\$argon2')
+    fail_msg: >-
+      authelia_users entry {{ item.username | default('(no username)') }} is
+      incomplete: username, email and an argon2 password_hash are all required.
+      Generate the hash with:
+      podman run --rm {{ authelia_image }} authelia crypto hash generate argon2 --password 'THEIRPASS'
+    quiet: true
+  loop: "{{ authelia_users | default([]) }}"
+  loop_control:
+    label: "{{ item.username | default('(no username)') }}"
+  no_log: true        # entries carry password hashes
+
 - name: Stop authelia if already running
   become: true
   become_user: "{{ containers_user }}"
