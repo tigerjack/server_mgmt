@@ -114,7 +114,7 @@
     # 127.0.1.1 which Podman copies into each container. Back-channel OIDC
     # calls (user_oidc discovery fetch, token exchange) then hit loopback and
     # fail. Map the domain to the real host IP so they reach Traefik's 443.
-    etc_hosts: "{{ {domain: ansible_default_ipv4.address} }}"
+    etc_hosts: "{{ {domain: ansible_facts['default_ipv4']['address']} }}"
     env:
       # Database
       MYSQL_HOST:     "db_nextcloud"

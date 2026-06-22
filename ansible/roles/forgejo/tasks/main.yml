@@ -93,7 +93,7 @@
     # host IP, where Traefik's published 443 serves a valid cert.
     # NOTE: build the dict via a single Jinja expression so the *key* (domain)
     # is templated - "{{ domain }}": ... leaves the key literal.
-    etc_hosts: "{{ {domain: ansible_default_ipv4.address} }}"
+    etc_hosts: "{{ {domain: ansible_facts['default_ipv4']['address']} }}"
     label:
       io.containers.autoupdate: "registry"
       traefik.enable: "true"
