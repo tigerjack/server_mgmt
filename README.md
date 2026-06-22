@@ -164,6 +164,12 @@ Host example.com
     Port 2222
 ```
 
+### `authelia` *(experimental, off by default)*
+
+Single sign-on identity provider. Off unless `enable_authelia: true` is set.
+See the [Experimental: Authelia SSO](#experimental-authelia-sso-oidc-single-sign-on)
+section below and **EXPERIMENTAL-SSO-SMTP.md** for the full setup guide.
+
 ### `collabora`
 
 Collabora Online document server (secondary). Connected to Nextcloud via the
@@ -175,6 +181,67 @@ EuroOffice Document Server (primary, ONLYOFFICE-compatible). Connected to
 Nextcloud via the `eurooffice` app. Like Collabora it runs on the internal
 network only. Both document servers are deployed; Nextcloud uses EuroOffice
 by default — Collabora is available as a fallback.
+
+---
+
+## Experimental: Authelia SSO (OIDC single sign-on)
+
+> **Status: off by default.** All Authelia code is gated behind
+> `enable_authelia: false` in `group_vars/all/vars.yml`. The stable stack
+> works without it. See **EXPERIMENTAL-SSO-SMTP.md** for the full setup guide.
+
+Authelia provides a **single login shared across Nextcloud and Forgejo**: users
+authenticate once at `https://<domain>/auth` and the OIDC token is accepted by
+both apps. It also provides a reusable forward-auth middleware for protecting
+any other route that has no login of its own.
+
+### Architecture
+
+```
+Browser → Traefik → https://<domain>/auth  →  Authelia container (port 9091)
+                  → https://<domain>/cloud  →  Nextcloud  ─┐
+                  → https://<domain>/git    →  Forgejo    ─┴─ both delegate login to Authelia via OIDC
+```
+
+Authelia is deployed as a single container on the `edge` network, served under
+`/auth` on the main domain (no extra subdomain). It acts as an OpenID Connect
+provider; Nextcloud and Forgejo are pre-registered as OIDC clients.
+
+### User management (approval workflow)
+
+There is **no self-service registration**: a person can log in only if you have
+explicitly added them to the `authelia_users` list in your encrypted vault.
+Adding someone to that list *is* the approval step.
+
+```yaml
+# In group_vars/all/vault.yml:
+authelia_users:
+  - username: "alice"
+    displayname: "Alice Rossi"
+    email: "alice@polimi.it"
+    password_hash: "$argon2id$v=19$..."   # generated with authelia crypto hash
+    groups: [users]
+```
+
+Re-run the playbook after any change. To revoke access: set `disabled: true` or
+remove the entry entirely.
+
+### Enabling it
+
+1. Generate secrets (see EXPERIMENTAL-SSO-SMTP.md §2.1) and fill them into the vault.
+2. Set `enable_authelia: true` (and optionally `enable_smtp: true`) in `vars.yml`.
+3. Run the playbook.
+
+### Forward-auth for bare routes
+
+Any route with no login of its own can be protected by attaching the
+`authelia@docker` middleware on that container's Traefik labels:
+
+```yaml
+traefik.http.routers.<name>.middlewares: "authelia@docker"
+```
+
+Unauthenticated requests are redirected to the Authelia portal first.
 
 ---
 
@@ -312,6 +379,8 @@ ansible/
     forgejo/tasks/main.yml            # Forgejo + MariaDB
     collabora/tasks/main.yml          # Collabora Online document server
     eurooffice/tasks/main.yml         # EuroOffice document server (primary)
+    authelia/tasks/main.yml           # SSO/OIDC provider (experimental, off by default)
 README.md                  # This file
+EXPERIMENTAL-SSO-SMTP.md   # Full setup guide for Authelia + SMTP (experimental)
 PODMAN-README.md           # One-time host setup (rootless Podman + containers user)
 ```

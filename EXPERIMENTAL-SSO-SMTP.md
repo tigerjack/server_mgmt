@@ -188,9 +188,18 @@ users reach the service.
 ## Caveats / things to verify on the server
 
 - **Untested.** The Authelia config targets schema **4.39**; if you pin a
-  different tag, reconcile the config (`server.address` path syntax, the
-  `identity_validation`/`jwks` sections, and `notifier` address scheme are the
-  usual breaking points). Check `scont podman logs authelia` after first boot.
+  different tag, reconcile the config. The usual breaking points between versions
+  are the `server.address` path syntax, the `jwks` key structure under
+  `identity_providers.oidc`, and the `notifier` address scheme (e.g.
+  `submission://` vs `smtp+starttls://`). The JWT reset-password secret is
+  intentionally absent from `configuration.yml` — it is injected via the
+  `AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET` env var, which
+  Authelia maps to the equivalent config key automatically. Check container logs
+  after first boot:
+  ```bash
+  sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
+    podman logs authelia
+  ```
 - **Subpath OIDC issuer.** Because Authelia is under `/auth`, the issuer is
   `https://<domain>/auth` and discovery is at
   `https://<domain>/auth/.well-known/openid-configuration`. If an app complains
