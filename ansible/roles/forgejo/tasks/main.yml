@@ -255,7 +255,7 @@
 - name: Add Authelia as a Forgejo OIDC login source
   become: true
   become_user: "{{ containers_user }}"
-  no_log: true
+  no_log: false   # TEMPORARY - remove after debugging
   ansible.builtin.command:
     cmd: >
       podman exec --user git forgejo forgejo admin auth add-oauth
