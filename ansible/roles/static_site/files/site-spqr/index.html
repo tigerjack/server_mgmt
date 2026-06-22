@@ -2,14 +2,57 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Project</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    h1, h2 { line-height: 1.2; }
+    .sso { background: #f4f6f8; border: 1px solid #dde3e8; border-radius: 8px; padding: 1rem 1.25rem; margin-top: 2rem; }
+    .sso h2 { margin-top: 0; }
+    code { background: #e8ecef; padding: 0.1em 0.35em; border-radius: 4px; }
+  </style>
 </head>
 <body>
   <h1>This project's storage and code are here:</h1>
   <ul>
-    <li><a href="/cloud">/cloud</a> - Nextcloud</li>
-    <li><a href="/git">/git</a> - Forgejo</li>
-    <li><a href="https://spqr.idi.ntnu.no/">https://spqr.idi.ntnu.no/</a> - Website</li>
+    <li><a href="/cloud">/cloud</a> &ndash; Nextcloud</li>
+    <li><a href="/git">/git</a> &ndash; Forgejo</li>
+    <li><a href="https://spqr.idi.ntnu.no/">https://spqr.idi.ntnu.no/</a> &ndash; Website</li>
   </ul>
+
+  <section class="sso">
+    <h2>Signing in with single sign-on (Authelia)</h2>
+    <p>
+      Both Nextcloud and Forgejo can be accessed with a single shared login
+      provided by <a href="/auth">Authelia</a>. Your account has already been
+      created &mdash; there is no self-service signup, so if you cannot log in,
+      ask the administrator to add you.
+    </p>
+    <p><strong>To sign in:</strong></p>
+    <ul>
+      <li>
+        <strong>Forgejo</strong> &ndash; on the
+        <a href="/git/user/login">login page</a>, click
+        <em>Sign in with authelia</em>. The first time, you may be asked to
+        enter your existing Forgejo password once to link your account to
+        Authelia; after that, the Authelia button is all you need.
+      </li>
+      <li>
+        <strong>Nextcloud</strong> &ndash; on the
+        <a href="/cloud/login">login page</a>, click
+        <em>Log in with Authelia</em>. Your existing files and shares are kept
+        &mdash; the single sign-on simply logs you into the same account.
+      </li>
+    </ul>
+    <p>
+      You will be sent to the Authelia portal to enter your username and
+      password, then returned to the app. Once you have signed in to Authelia,
+      moving between the two apps does not require typing your password again.
+    </p>
+    <p>
+      Forgot your password? Use the <em>Reset password</em> link on the
+      <a href="/auth">Authelia portal</a>.
+    </p>
+  </section>
 </body>
 </html>
