@@ -29,40 +29,57 @@ Each target host needs:
 
 ## What to change before first run
 
-### 1. Add a host file
+### 1. Add a host directory
 
-Create `ansible/host_vars/<your-hostname>.yml` by copying the example:
+Create `ansible/host_vars/<your-hostname>/` (a directory, not a single file)
+containing two files: `vars.yml` for plain config and `vault.yml` for secrets.
+Copy from the examples:
 
 ```sh
-cp ansible/host_vars/example-server.yml ansible/host_vars/myserver.yml
-$EDITOR ansible/host_vars/myserver.yml
+mkdir ansible/host_vars/myserver
+cp ansible/host_vars/example-server.yml ansible/host_vars/myserver/vars.yml
+cp ansible/host_vars/spqr-project/vault.yml.example ansible/host_vars/myserver/vault.yml
+$EDITOR ansible/host_vars/myserver/vars.yml
+$EDITOR ansible/host_vars/myserver/vault.yml   # fill in every value, then encrypt
+ansible-vault encrypt ansible/host_vars/myserver/vault.yml
 ```
 
-Fields to fill in:
+Fields to fill in `vars.yml`:
 
 | Field | What to put |
 |---|---|
 | `ansible_host` | Server IP or resolvable hostname |
-| `ansible_user` | `root` (all servers require root SSH access) |
-| `ansible_ssh_private_key_file` | Path to **your personal SSH key** — the same one you already use to SSH into this server manually (e.g. `~/.ssh/id_ed25519`). |
-| `domain` | Your public domain, e.g. `example.com`. All three services live under this one domain. |
+| `ansible_user` | Your SSH login user |
+| `ansible_ssh_private_key_file` | Path to your SSH key (e.g. `~/.ssh/id_ed25519`) |
+| `domain` | Your public domain, e.g. `example.com`. All services share this domain. |
 
-One file per server. If a server runs only some services, edit `ansible/site.yml`
-to limit which roles apply to which hosts (use `hosts:` with a specific hostname
-or a group).
+The host `vault.yml` holds all per-instance secrets: database passwords,
+admin credentials, and (when Authelia is enabled) OIDC secrets and the user
+list. Each host has its own vault — instances never share secrets or user lists.
+The `vault.yml.example` file lists every variable with a generator command.
 
-### 2. Create and encrypt the vault
+One `host_vars/<host>/` directory per server. If a server runs only some
+services, edit `ansible/site.yml` to limit which roles apply (use `hosts:` with
+a specific hostname or a group).
+
+### 2. Create and encrypt the vaults
+
+There are two vault files:
+
+**Global vault** — shared across all hosts (only truly shared secrets, e.g.
+the ACME email for Let's Encrypt):
 
 ```sh
 cd ansible
 cp group_vars/all/vault.yml.example group_vars/all/vault.yml
-$EDITOR group_vars/all/vault.yml   # fill in every CHANGE_ME value
+$EDITOR group_vars/all/vault.yml
 ansible-vault encrypt group_vars/all/vault.yml
 ```
 
-The vault holds all secrets: database passwords, the Nextcloud admin password,
-and the Forgejo admin account. The `.example` file lists every variable with a
-description. **Never commit `vault.yml` unencrypted.**
+**Per-host vault** — instance-specific secrets and Authelia users (done in the
+step above as part of creating the host directory).
+
+Both vaults are gitignored and must never be committed unencrypted.
 
 Optionally, save the vault password in `.vault_pass` (already in `.gitignore`)
 so you don't have to type it every run:
@@ -164,11 +181,14 @@ Host example.com
     Port 2222
 ```
 
-### `authelia` *(experimental, off by default)*
+### `authelia`
 
-Single sign-on identity provider. Off unless `enable_authelia: true` is set.
-See the [Experimental: Authelia SSO](#experimental-authelia-sso-oidc-single-sign-on)
-section below and **EXPERIMENTAL-SSO-SMTP.md** for the full setup guide.
+Single sign-on identity provider (OIDC). On by default (`enable_authelia: true`).
+Serves at `https://<domain>/auth`. Users log in here once and the token is
+accepted by both Nextcloud and Forgejo. See the
+[Authelia SSO](#authelia-sso-oidc-single-sign-on) section below and
+**EXPERIMENTAL-SSO-SMTP.md** for setup, user management, and the password-change
+workflow.
 
 ### `collabora`
 
@@ -184,11 +204,13 @@ by default — Collabora is available as a fallback.
 
 ---
 
-## Experimental: Authelia SSO (OIDC single sign-on)
+## Authelia SSO (OIDC single sign-on)
 
-> **Status: off by default.** All Authelia code is gated behind
-> `enable_authelia: false` in `group_vars/all/vars.yml`. The stable stack
-> works without it. See **EXPERIMENTAL-SSO-SMTP.md** for the full setup guide.
+> **Status: on by default** (`enable_authelia: true` in
+> `group_vars/all/vars.yml`). Authelia is the **preferred login method** for
+> all regular users. The local admin accounts (set in the vault) bypass
+> Authelia and are used only for initial setup or emergency access. See
+> **EXPERIMENTAL-SSO-SMTP.md** for the full setup and password-change guide.
 
 Authelia provides a **single login shared across Nextcloud and Forgejo**: users
 authenticate once at `https://<domain>/auth` and the OIDC token is accepted by
@@ -198,14 +220,31 @@ any other route that has no login of its own.
 ### Architecture
 
 ```
-Browser → Traefik → https://<domain>/auth  →  Authelia container (port 9091)
+Browser → Traefik → https://<domain>/auth  →  Authelia portal + OIDC provider
                   → https://<domain>/cloud  →  Nextcloud  ─┐
-                  → https://<domain>/git    →  Forgejo    ─┴─ both delegate login to Authelia via OIDC
+                  → https://<domain>/git    →  Forgejo    ─┴─ delegate login to Authelia via OIDC
 ```
 
 Authelia is deployed as a single container on the `edge` network, served under
-`/auth` on the main domain (no extra subdomain). It acts as an OpenID Connect
-provider; Nextcloud and Forgejo are pre-registered as OIDC clients.
+`/auth` on the main domain (no extra subdomain needed). It acts as an OpenID
+Connect provider; Nextcloud and Forgejo are pre-registered as OIDC clients.
+
+### The Authelia portal (`/auth`)
+
+`https://<domain>/auth` is the Authelia user-facing portal. From here users can:
+
+- Log in (the SSO entry point — clicking "Sign in with authelia" in Forgejo or
+  "Log in with Authelia" in Nextcloud both redirect here first).
+- Manage TOTP second factor (if configured).
+- **Reset their password** — generates a reset token and either emails it (when
+  `enable_smtp: true`) or writes it to `/config/notification.txt` inside the
+  Authelia container. Without SMTP the admin must retrieve the token and pass it
+  to the user out-of-band:
+  ```bash
+  sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
+    podman exec authelia cat /config/notification.txt
+  ```
+  The printed URL contains the reset token; send it to the user manually.
 
 ### User management (approval workflow)
 
