@@ -682,5 +682,6 @@ ansible/
     eurooffice/tasks/main.yml         # EuroOffice document server (primary)
     authelia/tasks/main.yml           # SSO/OIDC provider (on by default)
 README.md                  # This file
+RUNBOOK.md                 # Operational runbook: logs, diagnostics, common fixes
 PODMAN-README.md           # One-time host setup (rootless Podman + containers user)
 ```
