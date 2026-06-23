@@ -115,13 +115,28 @@ Authelia's user database is at `/etc/authelia/users_database.yml` on the server.
 sudo grep -A5 'USERNAME' /etc/authelia/users_database.yml
 ```
 
-If the entry is missing, add it directly (takes effect immediately, no restart):
+If the entry is missing or wrong (e.g. a typo'd email — reset mail goes to the
+address recorded here, *not* what the user types), edit it directly:
 
 ```bash
 sudo nano /etc/authelia/users_database.yml
 ```
 
 See README § "Adding a user without running the playbook" for the exact format.
+The file backend runs with `watch: true`, so Authelia hot-reloads on save.
+
+> **After editing, confirm the reload actually happened.** A malformed YAML save
+> is rejected and Authelia keeps the *old* data in memory — which is exactly how
+> a fixed email address can keep sending to the old one. Check the log:
+> ```bash
+> sudo journalctl _SYSTEMD_USER_UNIT=container-authelia.service -n 10
+> ```
+> If the change still isn't applied, force it with a restart of Authelia **and
+> Traefik** (Authelia alone gets a new IP → Traefik 502 until it re-discovers):
+> ```bash
+> scont systemctl --user restart container-authelia.service
+> scont systemctl --user restart container-traefik.service
+> ```
 
 **3. Reset the password for them (no SMTP needed):**
 
@@ -135,8 +150,8 @@ scont podman run --rm docker.io/authelia/authelia:4.39 \
 sudo nano /etc/authelia/users_database.yml   # replace the password: field
 ```
 
-Authelia reloads the file automatically. Tell the user their temporary password
-and ask them to reset it via the portal immediately.
+Authelia hot-reloads on save (`watch: true`). Tell the user their temporary
+password and ask them to reset it via the portal immediately.
 
 > **Remember to update the vault** before the next playbook run, or the change
 > will be reverted (`ansible-vault edit host_vars/<host>/vault.yml`).
@@ -156,6 +171,17 @@ sudo cat /etc/authelia/notification.txt   # contains the reset URL
 ```
 
 Send that URL to the user out of band.
+
+**Mail is sent but to the wrong address.** Authelia mails the address recorded
+in `users_database.yml`, not what the user types. Check the **Brevo dashboard →
+Transactional → Email → Logs**: it shows the exact recipient and the delivery
+status (Delivered / Bounced / Blocked) for every message. If the recipient is
+wrong, the user's `email:` field is stale — fix it in the file (step 2 above)
+**and confirm the reload happened** (a rejected reload keeps the old address in
+memory, so mail keeps going to the old one until Authelia is restarted). Then
+mirror the fix into the vault. If Brevo shows *Delivered* to the right address
+but the user still doesn't see it, it's spam filtering or the recipient's mail
+server rejecting `promethence.com` — check the bounce reason in the Brevo log.
 
 #### SMTP relay unreachable (`lookup smtp-relay.brevo.com: i/o timeout`)
 

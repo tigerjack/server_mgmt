@@ -277,7 +277,8 @@ remove the entry entirely.
 #### Adding a user without running the playbook
 
 If you need to give someone access immediately, edit the live file on the server
-directly — Authelia watches it and reloads without a restart:
+directly. The file backend runs with `watch: true`, so Authelia hot-reloads the
+file on change — no restart needed:
 
 1. Generate the hash (on the server or your local machine):
    ```bash
@@ -298,7 +299,19 @@ directly — Authelia watches it and reloads without a restart:
        groups:
          - users
    ```
-3. Authelia picks up the change automatically — no restart needed.
+3. Save. Authelia reloads within a second or two. Confirm in the log that the
+   reload was clean (a YAML error keeps the *old* data in memory):
+   ```bash
+   sudo journalctl _SYSTEMD_USER_UNIT=container-authelia.service -n 10
+   ```
+   If for any reason the change isn't picked up (e.g. `watch` was disabled),
+   restart Authelia **and Traefik** — restarting Authelia alone gives it a new
+   container IP and leaves Traefik serving a 502 until it re-discovers (see
+   RUNBOOK.md for the `scont` helper used here):
+   ```bash
+   scont systemctl --user restart container-authelia.service
+   scont systemctl --user restart container-traefik.service
+   ```
 
 > **Make it permanent:** the next playbook run overwrites this file from the
 > vault. Before then, add the entry to `host_vars/<host>/vault.yml`
