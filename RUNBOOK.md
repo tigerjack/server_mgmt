@@ -27,10 +27,10 @@ output since the last restart and is empty if the container just started. Use
 
 ```bash
 # Last 50 lines (survives container restarts)
-sudo journalctl _UID=$(id -u containers) -u container-authelia.service --tail 50
-sudo journalctl _UID=$(id -u containers) -u container-nextcloud.service --tail 50
-sudo journalctl _UID=$(id -u containers) -u container-forgejo.service --tail 50
-sudo journalctl _UID=$(id -u containers) -u container-traefik.service --tail 50
+sudo journalctl _UID=$(id -u containers) -u container-authelia.service -n 50
+sudo journalctl _UID=$(id -u containers) -u container-nextcloud.service -n 50
+sudo journalctl _UID=$(id -u containers) -u container-forgejo.service -n 50
+sudo journalctl _UID=$(id -u containers) -u container-traefik.service -n 50
 
 # Live feed (Ctrl-C to stop)
 sudo journalctl _UID=$(id -u containers) -u container-authelia.service -f
@@ -98,7 +98,7 @@ and ask them to reset it via the portal immediately.
 **4. Password reset via portal isn't sending email:**
 
 ```bash
-sudo journalctl _UID=$(id -u containers) -u container-authelia.service --tail 30
+sudo journalctl _UID=$(id -u containers) -u container-authelia.service -n 30
 ```
 
 If SMTP is working but the user doesn't receive the mail:
@@ -117,7 +117,7 @@ Send that URL to the user out of band.
 
 ```bash
 # Application logs
-sudo journalctl _UID=$(id -u containers) -u container-nextcloud.service --tail 50
+sudo journalctl _UID=$(id -u containers) -u container-nextcloud.service -n 50
 
 # Nextcloud's own log (more detailed for app-level errors)
 scont podman exec --user www-data nextcloud tail -100 /var/www/html/data/nextcloud.log \
@@ -138,7 +138,7 @@ scont podman exec --user www-data nextcloud php /var/www/html/occ maintenance:re
 ## Forgejo — issues
 
 ```bash
-sudo journalctl _UID=$(id -u containers) -u container-forgejo.service --tail 50
+sudo journalctl _UID=$(id -u containers) -u container-forgejo.service -n 50
 
 # Run a forgejo admin command
 scont podman exec --user git forgejo forgejo admin user list
@@ -151,7 +151,7 @@ scont podman exec --user git forgejo forgejo admin auth list   # check OIDC sour
 ## Traefik — routing issues
 
 ```bash
-sudo journalctl _UID=$(id -u containers) -u container-traefik.service --tail 50
+sudo journalctl _UID=$(id -u containers) -u container-traefik.service -n 50
 
 # If a service returns 502 Bad Gateway after a container restart,
 # restart Traefik so it re-discovers the new container IP:
