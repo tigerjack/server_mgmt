@@ -65,6 +65,8 @@ Common error patterns and what they mean:
 
 **2. Confirm the user exists in the live file:**
 
+Authelia's user database is at `/etc/authelia/users_database.yml` on the server.
+
 ```bash
 sudo grep -A5 'USERNAME' /etc/authelia/users_database.yml
 ```
