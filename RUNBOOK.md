@@ -7,10 +7,10 @@ system user; prefix every `podman` command with the wrapper below, or define
 a shell alias for the session:
 
 ```bash
-alias pc='sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) podman'
+alias scont='sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) podman'
 ```
 
-The examples below use `pc` as that alias.
+The examples below use `scont` as that alias.
 
 ---
 
@@ -18,13 +18,13 @@ The examples below use `pc` as that alias.
 
 ```bash
 # Last 50 lines
-pc logs authelia   --tail 50
-pc logs nextcloud  --tail 50
-pc logs forgejo    --tail 50
-pc logs traefik    --tail 50
+scont logs authelia   --tail 50
+scont logs nextcloud  --tail 50
+scont logs forgejo    --tail 50
+scont logs traefik    --tail 50
 
 # Live feed (Ctrl-C to stop)
-pc logs -f authelia
+scont logs -f authelia
 ```
 
 ---
@@ -34,7 +34,7 @@ pc logs -f authelia
 **1. Check the logs while the user tries again:**
 
 ```bash
-pc logs -f authelia
+scont logs -f authelia
 ```
 
 Common error patterns and what they mean:
@@ -67,7 +67,7 @@ Generate a new hash and paste it into the live file:
 
 ```bash
 # On server or local machine:
-pc run --rm docker.io/authelia/authelia:4.39 \
+scont run --rm docker.io/authelia/authelia:4.39 \
   authelia crypto hash generate argon2 --password 'TempPassword123'
 
 sudo nano /etc/authelia/users_database.yml   # replace the password: field
@@ -82,7 +82,7 @@ and ask them to reset it via the portal immediately.
 **4. Password reset via portal isn't sending email:**
 
 ```bash
-pc logs authelia --tail 30   # look for smtp/notifier errors
+scont logs authelia --tail 30   # look for smtp/notifier errors
 ```
 
 If SMTP is working but the user doesn't receive the mail:
@@ -101,20 +101,20 @@ Send that URL to the user out of band.
 
 ```bash
 # Application logs
-pc logs nextcloud --tail 50
+scont logs nextcloud --tail 50
 
 # Nextcloud's own log (more detailed for app-level errors)
-pc exec --user www-data nextcloud tail -100 /var/www/html/data/nextcloud.log \
+scont exec --user www-data nextcloud tail -100 /var/www/html/data/nextcloud.log \
   | python3 -m json.tool --no-ensure-ascii 2>/dev/null | grep -A5 '"message"'
 
 # Run an occ command
-pc exec --user www-data nextcloud php /var/www/html/occ <command>
+scont exec --user www-data nextcloud php /var/www/html/occ <command>
 
 # Useful occ commands:
-pc exec --user www-data nextcloud php /var/www/html/occ user:list
-pc exec --user www-data nextcloud php /var/www/html/occ user:info <username>
-pc exec --user www-data nextcloud php /var/www/html/occ status
-pc exec --user www-data nextcloud php /var/www/html/occ maintenance:repair
+scont exec --user www-data nextcloud php /var/www/html/occ user:list
+scont exec --user www-data nextcloud php /var/www/html/occ user:info <username>
+scont exec --user www-data nextcloud php /var/www/html/occ status
+scont exec --user www-data nextcloud php /var/www/html/occ maintenance:repair
 ```
 
 ---
@@ -122,12 +122,12 @@ pc exec --user www-data nextcloud php /var/www/html/occ maintenance:repair
 ## Forgejo — issues
 
 ```bash
-pc logs forgejo --tail 50
+scont logs forgejo --tail 50
 
 # Run a forgejo admin command
-pc exec --user git forgejo forgejo admin user list
-pc exec --user git forgejo forgejo admin user info --username <username>
-pc exec --user git forgejo forgejo admin auth list   # check OIDC source is present
+scont exec --user git forgejo forgejo admin user list
+scont exec --user git forgejo forgejo admin user info --username <username>
+scont exec --user git forgejo forgejo admin auth list   # check OIDC source is present
 ```
 
 ---
@@ -135,7 +135,7 @@ pc exec --user git forgejo forgejo admin auth list   # check OIDC source is pres
 ## Traefik — routing issues
 
 ```bash
-pc logs traefik --tail 50
+scont logs traefik --tail 50
 
 # If a service returns 502 Bad Gateway after a container restart,
 # restart Traefik so it re-discovers the new container IP:
@@ -149,7 +149,7 @@ sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
 
 ```bash
 # All containers and their state
-pc ps -a
+scont ps -a
 
 # Systemd unit status (shows restart history)
 sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
@@ -178,12 +178,12 @@ swaks \
 ## Restarting services
 
 ```bash
-alias sc='sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) systemctl --user'
+alias scontsvc='sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) systemctl --user'
 
-sc restart container-authelia.service
-sc restart container-nextcloud.service
-sc restart container-forgejo.service
-sc restart container-traefik.service
+scontsvc restart container-authelia.service
+scontsvc restart container-nextcloud.service
+scontsvc restart container-forgejo.service
+scontsvc restart container-traefik.service
 
 # Always restart Traefik after restarting any app container,
 # or Traefik will hold the stale container IP and return 502.
