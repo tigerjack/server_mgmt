@@ -12,7 +12,7 @@ alias scont='sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers)'
 Prepend every `podman` or `systemctl --user` command with it:
 
 ```bash
-scont podman logs authelia --tail 50
+scont podman logs --tail 50 authelia
 scont systemctl --user status container-authelia.service
 ```
 
