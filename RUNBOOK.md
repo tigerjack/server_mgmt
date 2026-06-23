@@ -100,6 +100,13 @@ Common error patterns and what they mean:
 | `token_endpoint_auth_method ... does not allow this method` (client `forgejo`) | Forgejo OIDC auth-method mismatch — the Authelia `forgejo` client must use `client_secret_basic` (fixed in `configuration.yml.j2`; redeploy the authelia role) |
 | `302` to `/auth` repeatedly | Session cookie issue — user should clear cookies and retry |
 
+**Benign log noise (safe to ignore — logged at `error` level but harmless):**
+
+| Log message | Why it's harmless |
+|---|---|
+| `Request timeout occurred ... read tcp ...->...: i/o timeout` `method=GET path=/ status_code=408` | The `remote_ip` is Traefik, not a user. Traefik keeps idle keep-alive connections to the backend; when one sits idle past Authelia's read timeout it's closed with a 408. Normal keep-alive reaping — no real request is dropped. |
+| `token ... already revoked` / `the token has been revoked` during `/api/reset-password` | A reset link was opened more than once (double-click, browser prefetch, page refresh). The first use consumed the token and the reset succeeded; the second hit is correctly rejected. |
+
 **2. Confirm the user exists in the live file:**
 
 Authelia's user database is at `/etc/authelia/users_database.yml` on the server.
