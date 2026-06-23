@@ -60,6 +60,11 @@ notifier:
   smtp:
     address: "{{ 'submission://' if smtp_security == 'starttls' else 'submissions://' if smtp_security == 'tls' else 'smtp://' }}{{ smtp_host }}:{{ smtp_port }}"
     sender: "{{ smtp_from }}"
+    # The first SMTP dial after the container has been idle is slow (cold DNS +
+    # TCP + TLS handshake to the relay) and overruns the 5s default, so the first
+    # password-reset click errors and only a retry succeeds. Give the cold path
+    # room to complete on the first attempt.
+    timeout: 30s
 {% if vault_smtp_user | default('') | length > 0 %}
     username: "{{ vault_smtp_user }}"
 {% endif %}
