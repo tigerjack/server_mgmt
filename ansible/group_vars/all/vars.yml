@@ -56,12 +56,3 @@ smtp_from: "noreply@{{ domain }}"
 
 # Authelia is served under this path on the main domain (no subdomain needed).
 authelia_subpath: "/auth"
-
-# resolv.conf options for the Authelia container. Podman's aardvark-dns is slow
-# on the first external lookup after idle, which makes Authelia's single SMTP
-# dial time out on the first password-reset attempt. A longer timeout plus a
-# retry rides over that cold-start instead of erroring. Override per host if a
-# different resolver tuning is needed.
-container_dns_options:
-  - "timeout:5"
-  - "attempts:3"
