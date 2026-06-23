@@ -98,7 +98,13 @@ identity_providers:
           - email
           - groups
         userinfo_signed_response_alg: none
-        token_endpoint_auth_method: client_secret_post
+        # Forgejo's OIDC client sends credentials via HTTP Basic auth
+        # (client_secret_basic) at the token endpoint and offers no option to
+        # switch to client_secret_post. Authelia rejects a method other than the
+        # one registered here, so this MUST match Forgejo - mismatched values
+        # fail login with "token_endpoint_auth_method ... does not allow this
+        # method". Nextcloud's user_oidc uses client_secret_post, hence they differ.
+        token_endpoint_auth_method: client_secret_basic
       - client_id: nextcloud
         client_name: Nextcloud
         client_secret: "{{ vault_oidc_nextcloud_client_secret_hash }}"

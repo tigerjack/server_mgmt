@@ -49,28 +49,28 @@ runs `podman run --rm` and creates a fresh container — `podman logs` only show
 output since the last restart and is empty if the container just started. Use
 **journald** to see logs across restarts.
 
-These are **rootless user services**, so their logs live in the `containers`
-user's journal. Read them by running `journalctl --user` as that user via
-`scont`:
+These are **rootless user services**. Read their logs from the system journal
+filtering on the *user-unit* field (your login user must be in the `adm` or
+`systemd-journal` group — `sperriello` is):
 
 ```bash
 # Last 50 lines (survives container restarts)
-scont journalctl --user -u container-authelia.service -n 50
-scont journalctl --user -u container-nextcloud.service -n 50
-scont journalctl --user -u container-forgejo.service -n 50
-scont journalctl --user -u container-traefik.service -n 50
+sudo journalctl _SYSTEMD_USER_UNIT=container-authelia.service -n 50
+sudo journalctl _SYSTEMD_USER_UNIT=container-nextcloud.service -n 50
+sudo journalctl _SYSTEMD_USER_UNIT=container-forgejo.service -n 50
+sudo journalctl _SYSTEMD_USER_UNIT=container-traefik.service -n 50
 
 # Live feed (Ctrl-C to stop)
-scont journalctl --user -u container-authelia.service -f
+sudo journalctl _SYSTEMD_USER_UNIT=container-authelia.service -f
 ```
 
-> **Why not `sudo journalctl -u ...`?** The `-u` flag matches *system* units
+> **Why this field and not `-u`?** The `-u` flag matches *system* units
 > (`_SYSTEMD_UNIT`). These are *user* units, stored under `_SYSTEMD_USER_UNIT`,
-> so `sudo journalctl -u container-authelia.service` returns "No entries". If you
-> must query the system journal directly, use the user-unit field instead:
-> ```bash
-> sudo journalctl _SYSTEMD_USER_UNIT=container-authelia.service -n 50
-> ```
+> so `sudo journalctl -u container-authelia.service` returns "No entries".
+> `scont journalctl --user` also fails here: the `containers` user isn't in the
+> `systemd-journal` group, so it can't read the journal ("insufficient
+> permissions"). Querying the system journal with `sudo` + the user-unit field
+> is the reliable path.
 
 `podman logs` still works for the current run if you need to check something
 immediately after a start:
@@ -86,7 +86,7 @@ scont podman logs --tail 50 authelia
 **1. Check the logs while the user tries again:**
 
 ```bash
-scont journalctl --user -u container-authelia.service -f
+sudo journalctl _SYSTEMD_USER_UNIT=container-authelia.service -f
 ```
 
 Common error patterns and what they mean:
@@ -96,7 +96,8 @@ Common error patterns and what they mean:
 | `user not found` | Username not in `users_database.yml` — check spelling, or the entry was never added |
 | `authentication failed` | Wrong password. If the user just reset it via the portal, check whether the vault was re-synced (see below) |
 | `error reading the authentication database` | `users_database.yml` is malformed — missing field, bad YAML indentation, or a non-argon2 hash |
-| `failed to send an email` | SMTP misconfigured or Brevo rejected the message — check SMTP section below |
+| `failed to send an email` / `notifier: smtp: ... lookup smtp-relay.brevo.com: i/o timeout` | Authelia can't reach/resolve the SMTP relay — password reset emails won't send. See "SMTP relay unreachable" below |
+| `token_endpoint_auth_method ... does not allow this method` (client `forgejo`) | Forgejo OIDC auth-method mismatch — the Authelia `forgejo` client must use `client_secret_basic` (fixed in `configuration.yml.j2`; redeploy the authelia role) |
 | `302` to `/auth` repeatedly | Session cookie issue — user should clear cookies and retry |
 
 **2. Confirm the user exists in the live file:**
@@ -136,7 +137,7 @@ and ask them to reset it via the portal immediately.
 **4. Password reset via portal isn't sending email:**
 
 ```bash
-scont journalctl --user -u container-authelia.service -n 30
+sudo journalctl _SYSTEMD_USER_UNIT=container-authelia.service -n 30
 ```
 
 If SMTP is working but the user doesn't receive the mail:
@@ -149,13 +150,50 @@ sudo cat /etc/authelia/notification.txt   # contains the reset URL
 
 Send that URL to the user out of band.
 
+#### SMTP relay unreachable (`lookup smtp-relay.brevo.com: i/o timeout`)
+
+Authelia couldn't resolve or reach the relay, so the reset email never left the
+server. Diagnose from inside the container's network namespace and from the host:
+
+```bash
+# Does DNS resolve from inside the Authelia container's netns?
+scont podman exec authelia getent hosts smtp-relay.brevo.com 2>/dev/null \
+  || echo "no resolver tools in image — test from another container below"
+
+# Resolve + reach the relay from a throwaway container on the same network:
+scont podman run --rm --network edge docker.io/alpine \
+  sh -c 'nslookup smtp-relay.brevo.com; nc -zv smtp-relay.brevo.com 587'
+
+# Compare against the host itself:
+getent hosts smtp-relay.brevo.com
+nc -zv smtp-relay.brevo.com 587
+```
+
+Likely causes and fixes:
+
+- **Container DNS can't reach the host stub resolver.** If the host uses
+  `systemd-resolved` (a `127.0.0.53` nameserver in `/etc/resolv.conf`), that
+  loopback address is unreachable from inside the container's network namespace,
+  so external lookups time out. Fix by giving the container real upstream DNS —
+  add a `dns:` list to the Authelia container in
+  `roles/authelia/tasks/main.yml` (e.g. the campus resolvers or `1.1.1.1`),
+  then redeploy.
+- **Outbound port 587 blocked** from the server's network. If `nc` from the host
+  also fails, it's a firewall/egress policy issue (campus networks often block
+  outbound SMTP) — ask DEIB IT, or relay over a permitted port.
+- **Transient.** Brevo DNS hiccups recover on their own; retry the reset and
+  watch the log.
+
+Until SMTP is reliable, use method 3 above (admin sets the password directly) or
+read the reset URL from `notification.txt` — neither needs email.
+
 ---
 
 ## Nextcloud — issues
 
 ```bash
 # Application logs
-scont journalctl --user -u container-nextcloud.service -n 50
+sudo journalctl _SYSTEMD_USER_UNIT=container-nextcloud.service -n 50
 
 # Nextcloud's own log (more detailed for app-level errors)
 scont podman exec --user www-data nextcloud tail -100 /var/www/html/data/nextcloud.log \
@@ -176,7 +214,7 @@ scont podman exec --user www-data nextcloud php /var/www/html/occ maintenance:re
 ## Forgejo — issues
 
 ```bash
-scont journalctl --user -u container-forgejo.service -n 50
+sudo journalctl _SYSTEMD_USER_UNIT=container-forgejo.service -n 50
 
 # Run a forgejo admin command
 scont podman exec --user git forgejo forgejo admin user list
@@ -189,7 +227,7 @@ scont podman exec --user git forgejo forgejo admin auth list   # check OIDC sour
 ## Traefik — routing issues
 
 ```bash
-scont journalctl --user -u container-traefik.service -n 50
+sudo journalctl _SYSTEMD_USER_UNIT=container-traefik.service -n 50
 
 # If a service returns 502 Bad Gateway after a container restart,
 # restart Traefik so it re-discovers the new container IP:
