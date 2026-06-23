@@ -72,6 +72,14 @@
     state: present
     network:
       - edge
+    # Podman's per-network resolver (aardvark-dns) is slow to answer the FIRST
+    # external lookup after the container has been idle, so Authelia's single
+    # SMTP dial attempt times out ("lookup smtp-relay...: i/o timeout") and the
+    # user sees a password-reset error; a retry then succeeds once aardvark is
+    # warm. Make the in-container resolver patient and retry instead of failing
+    # on the first slow answer (Authelia's Go resolver honors resolv.conf
+    # timeout/attempts). Overridable per host via container_dns_options.
+    dns_option: "{{ container_dns_options }}"
     volume:
       - /etc/authelia:/config:Z
     # Built as a dict so the SMTP password env var is only present when SMTP is

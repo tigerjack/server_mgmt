@@ -171,18 +171,17 @@ nc -zv smtp-relay.brevo.com 587
 
 Likely causes and fixes:
 
-- **Container DNS can't reach the host stub resolver.** If the host uses
-  `systemd-resolved` (a `127.0.0.53` nameserver in `/etc/resolv.conf`), that
-  loopback address is unreachable from inside the container's network namespace,
-  so external lookups time out. Fix by giving the container real upstream DNS —
-  add a `dns:` list to the Authelia container in
-  `roles/authelia/tasks/main.yml` (e.g. the campus resolvers or `1.1.1.1`),
-  then redeploy.
+- **aardvark-dns cold start (most common here).** Podman's per-network resolver
+  is slow to answer the *first* external lookup after the container has been
+  idle, so Authelia's single SMTP dial times out and the reset errors; clicking
+  again succeeds because the resolver is now warm. The Authelia container sets
+  `dns_option: [timeout:5, attempts:3]` (`container_dns_options` in
+  `group_vars/all/vars.yml`) so its resolver waits and retries instead of failing
+  on the first slow answer. If you still see first-attempt timeouts, raise the
+  timeout/attempts and redeploy the authelia role.
 - **Outbound port 587 blocked** from the server's network. If `nc` from the host
   also fails, it's a firewall/egress policy issue (campus networks often block
   outbound SMTP) — ask DEIB IT, or relay over a permitted port.
-- **Transient.** Brevo DNS hiccups recover on their own; retry the reset and
-  watch the log.
 
 Until SMTP is reliable, use method 3 above (admin sets the password directly) or
 read the reset URL from `notification.txt` — neither needs email.
