@@ -1,6 +1,6 @@
 ---
-# EXPERIMENTAL - Authelia identity provider (OIDC) + forward-auth.
-# Only runs when enable_authelia is true. See EXPERIMENTAL-SSO-SMTP.md.
+# Authelia identity provider (OIDC) + forward-auth.
+# Only runs when enable_authelia is true. See the Authelia SSO section of README.md.
 
 # Validate the user list up front: Authelia refuses to boot if any user is
 # missing a required field, and because generate_systemd new:true uses

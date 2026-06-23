@@ -220,13 +220,19 @@ nc -zv smtp-relay.brevo.com 587
 Likely causes and fixes:
 
 - **aardvark-dns cold start (most common here).** Podman's per-network resolver
-  is slow to answer the *first* external lookup after the container has been
-  idle, so Authelia's single SMTP dial times out and the reset errors; clicking
-  again succeeds because the resolver is now warm. The Authelia container sets
-  `dns_option: [timeout:5, attempts:3]` (`container_dns_options` in
-  `group_vars/all/vars.yml`) so its resolver waits and retries instead of failing
-  on the first slow answer. If you still see first-attempt timeouts, raise the
-  timeout/attempts and redeploy the authelia role.
+  (`10.89.0.1`) is slow to answer the *first* external lookup after the container
+  has been idle, so Authelia's single SMTP dial times out and the reset errors;
+  clicking again succeeds because the resolver is now warm. Two mitigations are
+  in place in the authelia role: the container bind-mounts a `resolv.conf`
+  pointing straight at `1.1.1.1`/`8.8.8.8` (`/etc/authelia/resolv.conf` →
+  `/etc/resolv.conf:ro`), bypassing aardvark entirely, and the SMTP `timeout` is
+  raised to `30s` in `configuration.yml.j2` so a cold TCP+TLS dial completes on
+  the first attempt. If you still see first-attempt timeouts, confirm the
+  container's `/etc/resolv.conf` actually shows the upstream resolvers (not
+  `10.89.0.1`) and bump the SMTP timeout further, then redeploy the authelia role:
+  ```bash
+  scont podman exec authelia cat /etc/resolv.conf   # expect 1.1.1.1 / 8.8.8.8
+  ```
 - **Outbound port 587 blocked** from the server's network. If `nc` from the host
   also fails, it's a firewall/egress policy issue (campus networks often block
   outbound SMTP) — ask DEIB IT, or relay over a permitted port.

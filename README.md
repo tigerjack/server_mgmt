@@ -367,16 +367,26 @@ token; completing it rewrites `users_database.yml` **inside the container only**
 That works immediately, but to survive the next deploy you must pull the new
 hash back into the vault:
 
-1. Read the hash Authelia just wrote:
+1. Read the hash Authelia just wrote. The user file is bind-mounted from the
+   host, so read it directly (note: the key in this file is `password`):
    ```bash
-   sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
-     podman exec authelia cat /config/users_database.yml
+   sudo grep -A5 'USERNAME' /etc/authelia/users_database.yml
    ```
 2. Copy that user's new `password` field into `password_hash` in
    `host_vars/<host>/vault.yml` (`ansible-vault edit`).
 3. Re-run the playbook so vault and container stay in sync.
 
 Until you do steps 2–3, treat the reset as provisional: a redeploy will undo it.
+
+> **During a testing phase, prefer method B.** Don't ask users to send you a
+> password or a hash — they have no easy way to generate an argon2 hash, and you
+> don't want plaintext passwords landing in your inbox. Instead let each user
+> self-reset through the portal (they pick a password you never see), then you
+> **harvest the resulting hash** from `users_database.yml` (step 1 above) and
+> fold it into the vault. The hash is safe to handle and store in the vault; the
+> plaintext stays with the user. Do the harvest once per user before the next
+> deploy, or batch it just before you redeploy — any un-harvested reset is
+> reverted by the playbook.
 
 > **Future upgrade path:** this file-backend friction scales fine to a few dozen
 > users. When self-service password management becomes a real need, switch
