@@ -42,6 +42,17 @@
     group: "{{ containers_user }}"
     mode: "0700"
 
+- name: Deploy resolv.conf for authelia container (bypass aardvark-dns cold start)
+  become: true
+  ansible.builtin.copy:
+    content: |
+      nameserver 1.1.1.1
+      nameserver 8.8.8.8
+    dest: /etc/authelia/resolv.conf
+    owner: "{{ containers_user }}"
+    group: "{{ containers_user }}"
+    mode: "0644"
+
 - name: Deploy authelia configuration
   become: true
   no_log: true        # contains the OIDC issuer private key and client secret hashes
@@ -72,15 +83,13 @@
     state: present
     network:
       - edge
-    # Podman's per-network resolver (aardvark-dns, 10.89.0.1) is slow on the
-    # first external lookup after idle, causing Authelia's SMTP dial to time out
-    # on the first password-reset click. Authelia doesn't resolve other container
-    # names, so bypass aardvark entirely with a real upstream resolver.
-    dns:
-      - "1.1.1.1"
-      - "8.8.8.8"
     volume:
       - /etc/authelia:/config:Z
+      # Bind-mount a resolv.conf pointing at real upstream resolvers so Authelia
+      # bypasses aardvark-dns (Podman's per-network resolver). aardvark is slow
+      # on the first external lookup after idle, which causes Authelia's SMTP
+      # dial to time out on the first password-reset click.
+      - /etc/authelia/resolv.conf:/etc/resolv.conf:ro
     # Built as a dict so the SMTP password env var is only present when SMTP is
     # enabled. Authelia treats the mere presence of AUTHELIA_NOTIFIER_SMTP_*
     # (even empty) as "smtp notifier configured", which then fatally collides
