@@ -105,6 +105,7 @@ Common error patterns and what they mean:
 | Log message | Why it's harmless |
 |---|---|
 | `Request timeout occurred ... read tcp ...->...: i/o timeout` `method=GET path=/ status_code=408` | The `remote_ip` is Traefik, not a user. Traefik keeps idle keep-alive connections to the backend; when one sits idle past Authelia's read timeout it's closed with a 408. Normal keep-alive reaping — no real request is dropped. |
+| `Error occurred during reload ... open /config/users_database.yml: permission denied` (service=watcher) | The user file was edited with plain `sudo` and is now owned by `root`; Authelia (running as `containers`) can't read it, so the reload fails and it keeps the **old** data in memory (stale email/password). Fix ownership — see "Editing the user file" below |
 | `token ... already revoked` / `the token has been revoked` during `/api/reset-password` | A reset link was opened more than once (double-click, browser prefetch, page refresh). The first use consumed the token and the reset succeeded; the second hit is correctly rejected. |
 
 **2. Confirm the user exists in the live file:**
@@ -116,23 +117,36 @@ sudo grep -A5 'USERNAME' /etc/authelia/users_database.yml
 ```
 
 If the entry is missing or wrong (e.g. a typo'd email — reset mail goes to the
-address recorded here, *not* what the user types), edit it directly:
+address recorded here, *not* what the user types), edit it directly. **Edit as
+the `containers` user** so the file stays readable by Authelia:
 
 ```bash
-sudo nano /etc/authelia/users_database.yml
+sudo -u containers nano /etc/authelia/users_database.yml
 ```
+
+> **Never edit it with plain `sudo nano`.** That rewrites the file owned by
+> `root`; Authelia runs as `containers` and can no longer read it, so the
+> `watch: true` reload fails with `permission denied` and the **old** data stays
+> in memory (the classic "fixed the email but reset mail still goes to the old
+> address"). If you already did it, restore ownership:
+> ```bash
+> sudo chown containers:containers /etc/authelia/users_database.yml
+> sudo chmod 600 /etc/authelia/users_database.yml
+> sudo -u containers touch /etc/authelia/users_database.yml   # trigger a reload
+> ```
 
 See README § "Adding a user without running the playbook" for the exact format.
 The file backend runs with `watch: true`, so Authelia hot-reloads on save.
 
 > **After editing, confirm the reload actually happened.** A malformed YAML save
-> is rejected and Authelia keeps the *old* data in memory — which is exactly how
-> a fixed email address can keep sending to the old one. Check the log:
+> *or a permission-denied* is rejected and Authelia keeps the *old* data in
+> memory — exactly how a fixed email keeps sending to the old one. Check the log:
 > ```bash
 > sudo journalctl _SYSTEMD_USER_UNIT=container-authelia.service -n 10
 > ```
-> If the change still isn't applied, force it with a restart of Authelia **and
-> Traefik** (Authelia alone gets a new IP → Traefik 502 until it re-discovers):
+> Look for a clean reload and no `Error occurred during reload`. If the change
+> still isn't applied, restart Authelia **and Traefik** (Authelia alone gets a
+> new IP → Traefik 502 until it re-discovers):
 > ```bash
 > scont systemctl --user restart container-authelia.service
 > scont systemctl --user restart container-traefik.service
@@ -147,7 +161,8 @@ Generate a new hash and paste it into the live file:
 scont podman run --rm docker.io/authelia/authelia:4.39 \
   authelia crypto hash generate argon2 --password 'TempPassword123'
 
-sudo nano /etc/authelia/users_database.yml   # replace the password: field
+# Edit as the containers user (see ownership warning above):
+sudo -u containers nano /etc/authelia/users_database.yml   # replace the password: field
 ```
 
 Authelia hot-reloads on save (`watch: true`). Tell the user their temporary

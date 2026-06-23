@@ -285,10 +285,20 @@ file on change — no restart needed:
    podman run --rm docker.io/authelia/authelia:4.39 \
      authelia crypto hash generate argon2 --password 'TheirPassword'
    ```
-2. Edit the file on the server:
+2. Edit the file **as the `containers` user** so ownership is preserved:
    ```bash
-   sudo nano /etc/authelia/users_database.yml
+   sudo -u containers nano /etc/authelia/users_database.yml
    ```
+   > **Critical:** do NOT edit with plain `sudo nano`. That saves the file owned
+   > by `root`, after which Authelia (running as `containers`) can no longer read
+   > it — the watcher's reload fails with `permission denied` and Authelia keeps
+   > the *old* data in memory (e.g. a stale email, so reset mail keeps going to
+   > the old address). If you already did this, fix ownership:
+   > ```bash
+   > sudo chown containers:containers /etc/authelia/users_database.yml
+   > sudo chmod 600 /etc/authelia/users_database.yml
+   > ```
+
    Add the new entry under `users:` (note: the key in this file is `password`,
    not `password_hash`):
    ```yaml
@@ -299,15 +309,15 @@ file on change — no restart needed:
        groups:
          - users
    ```
-3. Save. Authelia reloads within a second or two. Confirm in the log that the
-   reload was clean (a YAML error keeps the *old* data in memory):
+3. Save. Authelia reloads within a second or two. **Confirm the reload was
+   clean** — a YAML error *or a permission-denied* keeps the old data in memory:
    ```bash
    sudo journalctl _SYSTEMD_USER_UNIT=container-authelia.service -n 10
    ```
-   If for any reason the change isn't picked up (e.g. `watch` was disabled),
-   restart Authelia **and Traefik** — restarting Authelia alone gives it a new
-   container IP and leaves Traefik serving a 502 until it re-discovers (see
-   RUNBOOK.md for the `scont` helper used here):
+   You want a successful reload line and no `Error occurred during reload`. If
+   the change still isn't applied, restart Authelia **and Traefik** — restarting
+   Authelia alone gives it a new container IP and leaves Traefik serving a 502
+   until it re-discovers (see RUNBOOK.md for the `scont` helper used here):
    ```bash
    scont systemctl --user restart container-authelia.service
    scont systemctl --user restart container-traefik.service
