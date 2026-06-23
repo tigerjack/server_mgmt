@@ -105,6 +105,7 @@ Common error patterns and what they mean:
 | Log message | Why it's harmless |
 |---|---|
 | `Request timeout occurred ... read tcp ...->...: i/o timeout` `method=GET path=/ status_code=408` | The `remote_ip` is Traefik, not a user. Traefik keeps idle keep-alive connections to the backend; when one sits idle past Authelia's read timeout it's closed with a 408. Normal keep-alive reaping — no real request is dropped. |
+| `Error occurred during reload ... open /config/users_database.yml: permission denied` (service=watcher) | The user file was edited with plain `sudo` and is now owned by `root`; Authelia (running as `containers`) can't read it, so the reload fails and it keeps the **old** data in memory (stale email/password). Fix ownership — see "Editing the user file" below |
 | `token ... already revoked` / `the token has been revoked` during `/api/reset-password` | A reset link was opened more than once (double-click, browser prefetch, page refresh). The first use consumed the token and the reset succeeded; the second hit is correctly rejected. |
 
 **2. Confirm the user exists in the live file:**
@@ -115,13 +116,41 @@ Authelia's user database is at `/etc/authelia/users_database.yml` on the server.
 sudo grep -A5 'USERNAME' /etc/authelia/users_database.yml
 ```
 
-If the entry is missing, add it directly (takes effect immediately, no restart):
+If the entry is missing or wrong (e.g. a typo'd email — reset mail goes to the
+address recorded here, *not* what the user types), edit it directly. **Edit as
+the `containers` user** so the file stays readable by Authelia:
 
 ```bash
-sudo nano /etc/authelia/users_database.yml
+sudo -u containers nano /etc/authelia/users_database.yml
 ```
 
+> **Never edit it with plain `sudo nano`.** That rewrites the file owned by
+> `root`; Authelia runs as `containers` and can no longer read it, so the
+> `watch: true` reload fails with `permission denied` and the **old** data stays
+> in memory (the classic "fixed the email but reset mail still goes to the old
+> address"). If you already did it, restore ownership:
+> ```bash
+> sudo chown containers:containers /etc/authelia/users_database.yml
+> sudo chmod 600 /etc/authelia/users_database.yml
+> sudo -u containers touch /etc/authelia/users_database.yml   # trigger a reload
+> ```
+
 See README § "Adding a user without running the playbook" for the exact format.
+The file backend runs with `watch: true`, so Authelia hot-reloads on save.
+
+> **After editing, confirm the reload actually happened.** A malformed YAML save
+> *or a permission-denied* is rejected and Authelia keeps the *old* data in
+> memory — exactly how a fixed email keeps sending to the old one. Check the log:
+> ```bash
+> sudo journalctl _SYSTEMD_USER_UNIT=container-authelia.service -n 10
+> ```
+> Look for a clean reload and no `Error occurred during reload`. If the change
+> still isn't applied, restart Authelia **and Traefik** (Authelia alone gets a
+> new IP → Traefik 502 until it re-discovers):
+> ```bash
+> scont systemctl --user restart container-authelia.service
+> scont systemctl --user restart container-traefik.service
+> ```
 
 **3. Reset the password for them (no SMTP needed):**
 
@@ -132,11 +161,12 @@ Generate a new hash and paste it into the live file:
 scont podman run --rm docker.io/authelia/authelia:4.39 \
   authelia crypto hash generate argon2 --password 'TempPassword123'
 
-sudo nano /etc/authelia/users_database.yml   # replace the password: field
+# Edit as the containers user (see ownership warning above):
+sudo -u containers nano /etc/authelia/users_database.yml   # replace the password: field
 ```
 
-Authelia reloads the file automatically. Tell the user their temporary password
-and ask them to reset it via the portal immediately.
+Authelia hot-reloads on save (`watch: true`). Tell the user their temporary
+password and ask them to reset it via the portal immediately.
 
 > **Remember to update the vault** before the next playbook run, or the change
 > will be reverted (`ansible-vault edit host_vars/<host>/vault.yml`).
@@ -156,6 +186,17 @@ sudo cat /etc/authelia/notification.txt   # contains the reset URL
 ```
 
 Send that URL to the user out of band.
+
+**Mail is sent but to the wrong address.** Authelia mails the address recorded
+in `users_database.yml`, not what the user types. Check the **Brevo dashboard →
+Transactional → Email → Logs**: it shows the exact recipient and the delivery
+status (Delivered / Bounced / Blocked) for every message. If the recipient is
+wrong, the user's `email:` field is stale — fix it in the file (step 2 above)
+**and confirm the reload happened** (a rejected reload keeps the old address in
+memory, so mail keeps going to the old one until Authelia is restarted). Then
+mirror the fix into the vault. If Brevo shows *Delivered* to the right address
+but the user still doesn't see it, it's spam filtering or the recipient's mail
+server rejecting `promethence.com` — check the bounce reason in the Brevo log.
 
 #### SMTP relay unreachable (`lookup smtp-relay.brevo.com: i/o timeout`)
 

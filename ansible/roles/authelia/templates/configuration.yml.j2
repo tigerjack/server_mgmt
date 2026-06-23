@@ -22,6 +22,12 @@ authentication_backend:
     disable: false
   file:
     path: /config/users_database.yml
+    # Watch the user file and hot-reload it on change. OFF by default, which is
+    # why manual edits to users_database.yml were ignored until a restart. With
+    # this on, editing the file (e.g. to add a user or fix an email) takes
+    # effect within seconds without restarting the container. Authelia watches
+    # the parent directory, so atomic-rename writes (nano, vim) are handled.
+    watch: true
     password:
       algorithm: argon2
       argon2:
