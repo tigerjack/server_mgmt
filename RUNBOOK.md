@@ -20,15 +20,27 @@ scont systemctl --user status container-authelia.service
 
 ## Inspecting logs
 
+Because containers are managed with `generate_systemd: new: true`, each restart
+runs `podman run --rm` and creates a fresh container — `podman logs` only shows
+output since the last restart and is empty if the container just started. Use
+**journald** to see logs across restarts:
+
 ```bash
-# Last 50 lines
-scont podman logs --tail 50 authelia
-scont podman logs --tail 50 nextcloud
-scont podman logs --tail 50 forgejo
-scont podman logs --tail 50 traefik
+# Last 50 lines (survives container restarts)
+sudo journalctl _UID=$(id -u containers) -u container-authelia.service --tail 50
+sudo journalctl _UID=$(id -u containers) -u container-nextcloud.service --tail 50
+sudo journalctl _UID=$(id -u containers) -u container-forgejo.service --tail 50
+sudo journalctl _UID=$(id -u containers) -u container-traefik.service --tail 50
 
 # Live feed (Ctrl-C to stop)
-scont podman logs -f authelia
+sudo journalctl _UID=$(id -u containers) -u container-authelia.service -f
+```
+
+`podman logs` still works for the current run if you need to check something
+immediately after a start:
+
+```bash
+scont podman logs --tail 50 authelia
 ```
 
 ---
@@ -38,7 +50,7 @@ scont podman logs -f authelia
 **1. Check the logs while the user tries again:**
 
 ```bash
-scont podman logs -f authelia
+sudo journalctl _UID=$(id -u containers) -u container-authelia.service -f
 ```
 
 Common error patterns and what they mean:
@@ -86,7 +98,7 @@ and ask them to reset it via the portal immediately.
 **4. Password reset via portal isn't sending email:**
 
 ```bash
-scont podman logs --tail 30 authelia   # look for smtp/notifier errors
+sudo journalctl _UID=$(id -u containers) -u container-authelia.service --tail 30
 ```
 
 If SMTP is working but the user doesn't receive the mail:
@@ -105,7 +117,7 @@ Send that URL to the user out of band.
 
 ```bash
 # Application logs
-scont podman logs --tail 50 nextcloud
+sudo journalctl _UID=$(id -u containers) -u container-nextcloud.service --tail 50
 
 # Nextcloud's own log (more detailed for app-level errors)
 scont podman exec --user www-data nextcloud tail -100 /var/www/html/data/nextcloud.log \
@@ -126,7 +138,7 @@ scont podman exec --user www-data nextcloud php /var/www/html/occ maintenance:re
 ## Forgejo — issues
 
 ```bash
-scont podman logs --tail 50 forgejo
+sudo journalctl _UID=$(id -u containers) -u container-forgejo.service --tail 50
 
 # Run a forgejo admin command
 scont podman exec --user git forgejo forgejo admin user list
@@ -139,7 +151,7 @@ scont podman exec --user git forgejo forgejo admin auth list   # check OIDC sour
 ## Traefik — routing issues
 
 ```bash
-scont podman logs --tail 50 traefik
+sudo journalctl _UID=$(id -u containers) -u container-traefik.service --tail 50
 
 # If a service returns 502 Bad Gateway after a container restart,
 # restart Traefik so it re-discovers the new container IP:
