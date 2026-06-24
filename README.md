@@ -66,8 +66,8 @@ a specific hostname or a group).
 
 There are two vault files:
 
-**Global vault** — shared across all hosts (only truly shared secrets, e.g.
-the ACME email for Let's Encrypt):
+**Global vault** — contains only `acme_email` (the Let's Encrypt registration
+address, same for all hosts). Everything else is per-host:
 
 ```sh
 cd ansible

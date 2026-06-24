@@ -54,6 +54,24 @@ vault_nextcloud_admin_user:       "admin"
 vault_nextcloud_admin_password:   ""
 
 # ---------------------------------------------------------------------------
+# Collabora Online
+# ---------------------------------------------------------------------------
+# Admin credentials for the Collabora built-in admin panel (/lool/adminws).
+# Not exposed to users — only used for server-side administration.
+vault_collabora_admin_user:     "admin"
+vault_collabora_admin_password: ""
+
+# ---------------------------------------------------------------------------
+# EuroOffice Document Server
+# ---------------------------------------------------------------------------
+# JWT secret shared between the EuroOffice container and the Nextcloud
+# richdocuments app. Both sides must have the same value — it is used to
+# sign and verify document-open requests. Not a password; generate with:
+#   openssl rand -hex 32
+# Do NOT share this value across instances.
+vault_eurooffice_jwt_secret: ""
+
+# ---------------------------------------------------------------------------
 # SMTP relay (leave blank if not using authenticated SMTP)
 # ---------------------------------------------------------------------------
 # Credentials for the outbound SMTP relay (e.g. Brevo).
