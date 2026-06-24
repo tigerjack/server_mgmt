@@ -34,27 +34,45 @@ works out of the box; the newer host (quouskwe) runs sudo-rs and times out. It
 has nothing to do with the `adm` group or the connection timeout — tuning those
 changes nothing.
 
-**Fix (recommended): give the deploy user passwordless sudo.** With no prompt to
-detect and no interactive auth required, both classic sudo and sudo-rs work, and
-the playbook runs without `--ask-become-pass`:
+**Fix (recommended): replace sudo-rs with classic sudo.** This keeps
+password-protected sudo and lets Ansible drive the prompt normally. The `sudo`
+command on these releases is *provided by* the `sudo-rs` package, so a plain
+reinstall just gives you sudo-rs again — you have to install the classic `sudo`
+package, which **conflicts** with `sudo-rs`, so apt removes sudo-rs in the same
+transaction.
+
+Open a **root shell in a second terminal first** (`sudo -i`) so a half-finished
+swap can't lock you out, then:
 
 ```sh
-# as root, replacing `sperriello` with your deploy user:
-echo 'sperriello ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/sperriello
-chmod 440 /etc/sudoers.d/sperriello
-visudo -c                       # verify syntax before logging out
-sudo -n true                    # should now succeed silently
+# in a root session on the host:
+apt update
+apt install sudo            # apt reports it will REMOVE sudo-rs to resolve the conflict
+sudo --version             # confirm: now "Sudo version 1.9.x", not "sudo-rs ..."
+sudo -n true               # now prints "sudo: a password is required" (classic wording)
 ```
 
-> **Alternative: replace sudo-rs with classic sudo.** If you want to keep
-> password-prompted sudo, install the classic implementation, which Ansible can
-> drive normally:
+If apt claims `sudo` is already the newest version and refuses to swap, force the
+direction explicitly:
+
+```sh
+apt install sudo sudo-rs-  # trailing '-' removes sudo-rs in the same transaction
+```
+
+After this the playbook runs with `--ask-become-pass` (which `deploy.sh` adds
+automatically since no `ansible_become_pass` is wired up), and you keep a
+password on sudo.
+
+> **Alternative: passwordless sudo.** If you would rather not touch the sudo
+> implementation, granting the deploy user passwordless sudo also works — there
+> is no prompt to detect either way:
 > ```sh
-> apt install --reinstall sudo   # pulls classic sudo, displacing sudo-rs
-> sudo --version                 # confirm it now reports "Sudo version 1.9.x"
+> echo 'sperriello ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/sperriello
+> chmod 440 /etc/sudoers.d/sperriello
+> visudo -c
 > ```
-> Passwordless sudo is simpler for an automated deploy target; switching back to
-> classic sudo is the choice if your security policy requires a password.
+> This is simpler but a broader privilege grant; prefer replacing sudo-rs if your
+> security policy requires a password on sudo.
 
 ## 1. Remove Docker
 
