@@ -5,45 +5,56 @@ run. It gets a host from "has Docker" to "has a working rootless Podman with the
 `containers` user the playbook expects." It deliberately doesn't touch firewall
 rules - that's handled elsewhere.
 
-## 0. Ensure the deploy user is in the `adm` group
+## 0. Make sudo work non-interactively for Ansible
 
 The playbook connects as your personal user (e.g. `sperriello`) and uses
 `become` (sudo) for privileged tasks. Ansible drives sudo non-interactively: it
-runs `sudo -S -p "<marker>"` and watches stderr for its own prompt marker.
+runs `sudo -S -p "<marker>"` and watches stderr for its own prompt marker, then
+feeds the password on stdin.
 
-On Ubuntu/Debian, the **`adm` group** controls how PAM presents the sudo
-authentication dialogue. Without it, PAM generates a custom prompt
-(`[sudo: authenticate] Password:`) instead of the standard
-`[sudo] password for <user>:`. Sudo ignores Ansible's `-p` marker in that case,
-so Ansible never recognises the prompt and the run dies with:
+Recent Ubuntu releases ship **`sudo-rs`** (the Rust rewrite of sudo) as the
+default `sudo`. `sudo-rs` does **not** drive the password prompt the way classic
+C sudo does — it doesn't honour Ansible's `-p` marker and routes authentication
+through polkit, so there's no prompt on the tty for Ansible to detect. The run
+dies with:
 
 ```
 Timeout (32s) waiting for privilege escalation prompt
 ```
 
-The fix is to add the deploy user to the `adm` group, which is what makes sudo
-use the standard prompt PAM sequence that Ansible can detect:
+and a quick check confirms it:
+
+```sh
+sudo --version          # quouskwe prints "sudo-rs ..."; spqr prints "Sudo version 1.9.x"
+sudo -n true            # sudo-rs prints "sudo: interactive authentication is required" (polkit wording)
+```
+
+This is purely a host difference: the older host (spqr) runs classic sudo and
+works out of the box; the newer host (quouskwe) runs sudo-rs and times out. It
+has nothing to do with the `adm` group or the connection timeout — tuning those
+changes nothing.
+
+**Fix (recommended): give the deploy user passwordless sudo.** With no prompt to
+detect and no interactive auth required, both classic sudo and sudo-rs work, and
+the playbook runs without `--ask-become-pass`:
 
 ```sh
 # as root, replacing `sperriello` with your deploy user:
-usermod -aG adm sperriello
+echo 'sperriello ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/sperriello
+chmod 440 /etc/sudoers.d/sperriello
+visudo -c                       # verify syntax before logging out
+sudo -n true                    # should now succeed silently
 ```
 
-Then open a **new SSH session** — group membership changes don't apply to the
-current session. Verify with:
-
-```sh
-id sperriello   # should include adm in the groups list
-```
-
-> If you cannot add the user to `adm`, the fallback is passwordless sudo, which
-> sidesteps the prompt entirely:
+> **Alternative: replace sudo-rs with classic sudo.** If you want to keep
+> password-prompted sudo, install the classic implementation, which Ansible can
+> drive normally:
 > ```sh
-> echo 'sperriello ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/sperriello
-> chmod 440 /etc/sudoers.d/sperriello
-> visudo -c
+> apt install --reinstall sudo   # pulls classic sudo, displacing sudo-rs
+> sudo --version                 # confirm it now reports "Sudo version 1.9.x"
 > ```
-> Passwordless sudo works but is a broader privilege grant than `adm` membership.
+> Passwordless sudo is simpler for an automated deploy target; switching back to
+> classic sudo is the choice if your security policy requires a password.
 
 ## 1. Remove Docker
 
