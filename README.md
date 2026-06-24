@@ -423,23 +423,44 @@ rather than creating a duplicate, **provided the email/username match** the
 
 ### Enabling it
 
-1. Generate secrets and fill them into the per-host vault, along with at least
-   one `authelia_users` entry. The example file
-   `host_vars/spqr-project/vault.yml.example` lists every key with a generator
-   command. Summary:
+1. Open `host_vars/<host>/vault.yml.example` — every variable has an inline
+   comment explaining what it is, who uses it, and how to generate it. The
+   non-obvious ones are summarised below.
+
+   **Four independent random secrets** (each a different internal purpose):
    ```bash
-   # Four random secrets (session, storage encryption, reset-JWT, OIDC HMAC):
-   openssl rand -hex 32      # run four times, one per secret
+   openssl rand -hex 32   # run four times, one result per secret
+   ```
+   | Variable | Purpose |
+   |---|---|
+   | `vault_authelia_session_secret` | Signs the browser session cookie |
+   | `vault_authelia_storage_encryption_key` | Encrypts Authelia's SQLite database (TOTP keys, remember-me tokens) |
+   | `vault_authelia_jwt_secret` | Signs password-reset tokens |
+   | `vault_authelia_oidc_hmac_secret` | Used in OIDC token derivation |
 
-   # OIDC issuer signing key (RSA private key, PEM):
-   openssl genrsa 4096       # paste the whole PEM into vault_authelia_oidc_jwks_key
+   **OIDC issuer signing key** (`vault_authelia_oidc_jwks_key`):
+   ```bash
+   openssl genrsa 4096
+   ```
+   This is an RSA private key. Authelia uses it to **sign the JWT tokens** it
+   issues to Nextcloud and Forgejo after a successful login; each app verifies
+   the signature against the matching public key, which Authelia publishes
+   automatically at `https://<domain>/auth/.well-known/jwks.json`. Paste the
+   entire PEM output (including `BEGIN`/`END` lines) into the vault, indented
+   by two spaces under the block scalar `|`. **Do not share this key across
+   instances** — generate a fresh one per server.
 
-   # One OIDC client-secret PAIR per app (plaintext + pbkdf2 hash):
+   **OIDC client secrets** — one matched (plaintext + hash) pair per app:
+   ```bash
+   # Run once for Forgejo, once for Nextcloud:
    podman run --rm docker.io/authelia/authelia:4.39 \
      authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 48
-   #   -> "Random Password" is the PLAINTEXT (goes to vault_oidc_<app>_client_secret)
-   #   -> "Digest"          is the HASH      (goes to vault_oidc_<app>_client_secret_hash)
+   # -> "Random Password" = *_client_secret     (plaintext, sent to the app)
+   # -> "Digest"          = *_client_secret_hash (hash, stored in Authelia)
    ```
+   Authelia stores only the hash; the plaintext goes into the app's OIDC
+   configuration (Forgejo admin panel, Nextcloud user_oidc app).
+
 2. `enable_authelia: true` is already the default in `group_vars/all/vars.yml`.
    If you turned it off, flip it back there or override it in
    `host_vars/<host>/vars.yml`.

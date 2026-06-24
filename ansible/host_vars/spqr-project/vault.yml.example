@@ -9,53 +9,135 @@
 #
 # Everything here is loaded ONLY for the spqr-project host. Each instance
 # (quouskwe-project, ...) gets its own host_vars/<host>/vault.yml with its
-# own users and secrets - they never see each other's values.
+# own users and secrets — they never see each other's values.
 #
 # vault.yml and .vault_pass are gitignored and must NEVER be committed.
 
-# --- Forgejo database + admin ---
+# ---------------------------------------------------------------------------
+# Forgejo
+# ---------------------------------------------------------------------------
+# Internal MariaDB credentials for the Forgejo database container.
+# vault_forgejo_db_root_password: root password for the MariaDB instance
+#   (only used for administrative SQL access, not by Forgejo itself)
+# vault_forgejo_db_password: password for the "forgejo" database user
+#   (used by the Forgejo container to connect to its database)
+# Generate both with: openssl rand -hex 32
 vault_forgejo_db_root_password: ""
 vault_forgejo_db_database:       "forgejo"
 vault_forgejo_db_user:           "forgejo"
 vault_forgejo_db_password:       ""
+
+# Forgejo application admin account (created on first run, idempotent after).
+# This user gets the "admin" role inside Forgejo and can manage users/repos.
+# It is distinct from the OS user and from any Authelia user.
 vault_forgejo_admin_user:        "sperriello"
 vault_forgejo_admin_password:    ""
 vault_forgejo_admin_email:       "sperriello@proton.me"
 
-# --- Nextcloud database + admin (add the rest to match your nextcloud role) ---
-# vault_nextcloud_db_password: ""
-# vault_nextcloud_admin_password: ""
+# ---------------------------------------------------------------------------
+# Nextcloud
+# ---------------------------------------------------------------------------
+# Internal MariaDB credentials for the Nextcloud database container.
+# vault_nextcloud_db_root_password: root password for the MariaDB instance
+# vault_nextcloud_db_password: password for the "nextcloud" database user
+# Generate both with: openssl rand -hex 32
+vault_nextcloud_db_root_password: ""
+vault_nextcloud_db_database:      "nextcloud"
+vault_nextcloud_db_user:          "nextcloud"
+vault_nextcloud_db_password:      ""
 
-# --- EXPERIMENTAL: SMTP relay credentials (leave blank for unauthenticated) ---
+# Nextcloud application admin account (created on first run, idempotent after).
+# This user gets the "admin" role inside Nextcloud.
+# It is distinct from any Authelia user — regular users log in via OIDC, but
+# the admin account is a local fallback if OIDC breaks.
+vault_nextcloud_admin_user:       "admin"
+vault_nextcloud_admin_password:   ""
+
+# ---------------------------------------------------------------------------
+# SMTP relay (leave blank if not using authenticated SMTP)
+# ---------------------------------------------------------------------------
+# Credentials for the outbound SMTP relay (e.g. Brevo).
+# vault_smtp_user:     your relay login / account email
+# vault_smtp_password: SMTP API key or relay password
 vault_smtp_user:     ""
 vault_smtp_password: ""
 
-# --- EXPERIMENTAL: Authelia secrets ---
-# Generate the four random secrets with: openssl rand -hex 32
+# ---------------------------------------------------------------------------
+# Authelia secrets
+# ---------------------------------------------------------------------------
+# Four independent random 256-bit secrets. Each serves a different internal
+# purpose; they must all be unique. Generate each with: openssl rand -hex 32
+#
+# vault_authelia_session_secret:         signs the browser session cookie
+# vault_authelia_storage_encryption_key: encrypts Authelia's SQLite database
+#   (TOTP secrets, WebAuthn keys, remember-me tokens)
+# vault_authelia_jwt_secret:             signs password-reset tokens
+# vault_authelia_oidc_hmac_secret:       used in OIDC token derivation (HMAC)
 vault_authelia_session_secret:         ""
 vault_authelia_storage_encryption_key: ""
 vault_authelia_jwt_secret:             ""
 vault_authelia_oidc_hmac_secret:       ""
-# OIDC issuer signing key (RSA PEM). Generate with: openssl genrsa 4096
+
+# OIDC issuer signing key — RSA 4096-bit private key in PEM format.
+#
+# Authelia uses this key to sign the JWT tokens it issues to Nextcloud and
+# Forgejo after a successful login. Each app verifies the signature against
+# the corresponding public key, which Authelia publishes automatically at
+# https://<domain>/auth/.well-known/jwks.json.
+#
+# Generate once per instance (do NOT share this key across instances — each
+# server must have its own):
+#   openssl genrsa 4096
+#
+# Paste the entire output (including BEGIN/END lines) here, preserving the
+# block-scalar style (the leading | and two-space indent on every line):
 vault_authelia_oidc_jwks_key: |
   -----BEGIN PRIVATE KEY-----
-  ...paste the whole PEM here...
+  ...paste the whole PEM here, indented by two spaces...
   -----END PRIVATE KEY-----
 
-# One matched (plaintext, hash) pair per app. Generate each pair with:
+# ---------------------------------------------------------------------------
+# OIDC client secrets (one matched pair per app)
+# ---------------------------------------------------------------------------
+# Each app registered as an OIDC client needs a shared secret. Authelia stores
+# only the hash; the plaintext goes to the app. Generate a matched pair with:
+#
 #   podman run --rm docker.io/authelia/authelia:4.39 \
 #     authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 48
-#   -> "Random Password" = the *_client_secret (plaintext, goes to the app)
-#   -> "Digest"          = the *_client_secret_hash (goes to Authelia)
+#
+# The command prints two lines:
+#   Random Password: <PLAINTEXT>   → *_client_secret     (goes to the app)
+#   Digest:          <HASH>        → *_client_secret_hash (stays in Authelia)
+#
+# Run it twice: once for Forgejo, once for Nextcloud.
+#
+# Forgejo — used by the "authelia" OAuth2 source inside Forgejo's admin panel
 vault_oidc_forgejo_client_secret:        ""
 vault_oidc_forgejo_client_secret_hash:   ""
+# Nextcloud — used by the user_oidc app inside Nextcloud
 vault_oidc_nextcloud_client_secret:      ""
 vault_oidc_nextcloud_client_secret_hash: ""
 
-# --- Authelia users (THIS instance's approved logins) ---
-# Generate each password_hash with:
+# ---------------------------------------------------------------------------
+# Authelia users (THIS instance's approved logins)
+# ---------------------------------------------------------------------------
+# Only users listed here can log in. There is no self-service registration.
+# Adding an entry and re-running the playbook is the approval step.
+#
+# Fields:
+#   username:      login name (must be unique, lowercase recommended)
+#   displayname:   shown in Authelia's portal UI
+#   email:         where password-reset links are sent
+#   password_hash: argon2 hash of the user's password (see below)
+#   groups:        list of groups; "admins" grants admin access in Nextcloud
+#
+# Generate the password_hash with:
 #   podman run --rm docker.io/authelia/authelia:4.39 \
 #     authelia crypto hash generate argon2 --password 'TheirPassword'
+#
+# During a testing phase, prefer the self-reset flow: set an initial hash here,
+# let the user reset their password via the /auth portal, then harvest the new
+# hash from /etc/authelia/users_database.yml and update this vault entry.
 authelia_users:
   - username: "sperriello"
     displayname: "Stefano Perriello"
