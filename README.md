@@ -5,12 +5,51 @@ Ansible playbook for managing self-hosted servers running:
 - **Static landing page** at `/`
 - **Nextcloud** at `/cloud`
 - **Forgejo** at `/git` (HTTP) and `:2222` (SSH)
-- **Collabora Online** (document server, secondary)
-- **EuroOffice Document Server** (document server, primary)
+- **Collabora Online** + **EuroOffice Document Server** (document editing in Nextcloud)
+- **Authelia** single sign-on at `/auth` (OIDC, on by default)
 
 Everything runs as rootless Podman containers under a dedicated `containers`
 system user. Traefik handles TLS (Let's Encrypt HTTP-01) and reverse-proxies
 all services from a single domain.
+
+---
+
+## Table of contents
+
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Deployment guide](#deployment-guide) — start here for a new host
+  - [1. Prepare the host](#1-prepare-the-host)
+  - [2. Register the host in the inventory](#2-register-the-host-in-the-inventory)
+  - [3. Create the host config and secrets](#3-create-the-host-config-and-secrets)
+  - [4. Create the global vault](#4-create-the-global-vault)
+  - [5. Generate Authelia / OIDC secrets](#5-generate-authelia--oidc-secrets)
+  - [6. Verify image versions](#6-verify-image-versions)
+  - [7. Run the playbook](#7-run-the-playbook)
+  - [8. Verify the deployment](#8-verify-the-deployment)
+- [Services reference](#services-reference) — what each role does
+- [Authelia SSO](#authelia-sso-oidc-single-sign-on) — users, passwords, linking
+- [SMTP relay (optional)](#smtp-relay-optional)
+- [Day-2 operations](#day-2-operations) — certificates, upgrades
+- [Nextcloud subpath install notes](#nextcloud-subpath-install-notes)
+- [Repository structure](#repository-structure)
+- **[RUNBOOK.md](RUNBOOK.md)** — logs, diagnostics, common fixes
+
+---
+
+## Architecture
+
+```
+Browser → Traefik (:80/:443) → https://<domain>/        →  static landing page
+                              → https://<domain>/cloud   →  Nextcloud  ─┐
+                              → https://<domain>/git      →  Forgejo    ─┼─ login via Authelia (OIDC)
+                              → https://<domain>/auth     →  Authelia portal + OIDC provider
+              (:2222) ────────→ Forgejo git-over-SSH
+```
+
+Traefik is the only container with host ports. It discovers every other
+container through the rootless Podman API socket and routes by `traefik.*`
+labels. All services share one domain; there are no per-service subdomains.
 
 ---
 
@@ -19,166 +58,221 @@ all services from a single domain.
 Each target host needs:
 
 - A `containers` system user with lingering enabled and a working rootless
-  Podman setup — follow **PODMAN-README.md** once per host before running the
-  playbook.
-- A public DNS A record pointing your domain at the server's IP (needed for
+  Podman setup — follow **[PODMAN-README.md](PODMAN-README.md)** once per host.
+- A public DNS A record pointing your domain at the server's IP (required for
   Let's Encrypt to issue a certificate).
 - Ports 80, 443, and 2222 reachable from the internet.
 
+On your **local** machine you need `ansible` and `ansible-vault` installed.
+
 ---
 
-## What to change before first run
+## Deployment guide
 
-### 1. Add a host directory
+Follow these steps in order for each new host. The running example host is
+`myserver` with domain `example.com` — substitute your own.
 
-Create `ansible/host_vars/<your-hostname>/` (a directory, not a single file)
-containing two files: `vars.yml` for plain config and `vault.yml` for secrets.
-Copy from the examples:
+### 1. Prepare the host
 
-```sh
-mkdir ansible/host_vars/myserver
-cp ansible/host_vars/example-server.yml ansible/host_vars/myserver/vars.yml
-cp ansible/host_vars/spqr-project/vault.yml.example ansible/host_vars/myserver/vault.yml
-$EDITOR ansible/host_vars/myserver/vars.yml
-$EDITOR ansible/host_vars/myserver/vault.yml   # fill in every value, then encrypt
-ansible-vault encrypt ansible/host_vars/myserver/vault.yml
+Complete the one-time rootless-Podman setup from
+**[PODMAN-README.md](PODMAN-README.md)** on the target server. Confirm the
+`containers` user exists and lingering is enabled before continuing.
+
+### 2. Register the host in the inventory
+
+Add the hostname to `ansible/inventory.yml`. The name must match the
+`host_vars/<hostname>/` directory you create in the next step.
+
+```yaml
+all:
+  hosts:
+    spqr-project:
+    myserver:          # ← add your host here
 ```
 
-Fields to fill in `vars.yml`:
+> If you skip this step, Ansible fails with *"Could not match supplied host
+> pattern"* — the host directory alone is not enough; the host must be listed
+> here too.
+
+### 3. Create the host config and secrets
+
+Each host gets a `host_vars/<hostname>/` **directory** with two files:
+`vars.yml` (plain config) and `vault.yml` (encrypted secrets).
+
+```sh
+cd ansible
+mkdir host_vars/myserver
+cp host_vars/example-server.yml          host_vars/myserver/vars.yml
+cp host_vars/spqr-project/vault.yml.example host_vars/myserver/vault.yml
+$EDITOR host_vars/myserver/vars.yml
+```
+
+Fields in `vars.yml`:
 
 | Field | What to put |
 |---|---|
 | `ansible_host` | Server IP or resolvable hostname |
 | `ansible_user` | Your SSH login user |
 | `ansible_ssh_private_key_file` | Path to your SSH key (e.g. `~/.ssh/id_ed25519`) |
-| `domain` | Your public domain, e.g. `example.com`. All services share this domain. |
+| `domain` | Your public domain, e.g. `example.com`. All services share it. |
 
-The host `vault.yml` holds all per-instance secrets: database passwords,
-admin credentials, and (when Authelia is enabled) OIDC secrets and the user
-list. Each host has its own vault — instances never share secrets or user lists.
-The `vault.yml.example` file lists every variable with a generator command.
-
-One `host_vars/<host>/` directory per server. If a server runs only some
-services, edit `ansible/site.yml` to limit which roles apply (use `hosts:` with
-a specific hostname or a group).
-
-### 2. Create and encrypt the vaults
-
-There are two vault files:
-
-**Global vault** — contains only `acme_email` (the Let's Encrypt registration
-address, same for all hosts). Everything else is per-host:
+Now fill in the secrets. Every variable in `vault.yml` has an inline comment
+explaining what it is and how to generate it — database passwords and admin
+credentials are free choices (`openssl rand -hex 32` is a good default); the
+Authelia/OIDC values need specific generators, covered in
+[step 5](#5-generate-authelia--oidc-secrets).
 
 ```sh
-cd ansible
+$EDITOR host_vars/myserver/vault.yml      # fill in every value
+ansible-vault encrypt host_vars/myserver/vault.yml
+```
+
+> **Per-host isolation.** Every secret lives in the host vault — instances never
+> share database passwords, OIDC keys, or user lists. Only `acme_email` is
+> global (next step).
+
+### 4. Create the global vault
+
+The global vault holds the single value shared by every host: the Let's Encrypt
+registration email.
+
+```sh
 cp group_vars/all/vault.yml.example group_vars/all/vault.yml
-$EDITOR group_vars/all/vault.yml
+$EDITOR group_vars/all/vault.yml          # set acme_email
 ansible-vault encrypt group_vars/all/vault.yml
 ```
 
-**Per-host vault** — instance-specific secrets and Authelia users (done in the
-step above as part of creating the host directory).
+> Both vaults are gitignored and must never be committed unencrypted. To avoid
+> typing the vault password every run, save it once in `.vault_pass` (also
+> gitignored) — `deploy.sh` picks it up automatically:
+> ```sh
+> echo "your-vault-password" > .vault_pass && chmod 600 .vault_pass
+> ```
 
-Both vaults are gitignored and must never be committed unencrypted.
+### 5. Generate Authelia / OIDC secrets
 
-Optionally, save the vault password in `.vault_pass` (already in `.gitignore`)
-so you don't have to type it every run:
+Authelia is on by default, so the host vault needs its secrets filled in before
+the first run. (To skip SSO entirely, set `enable_authelia: false` in
+`host_vars/myserver/vars.yml` and ignore this step.)
 
-```sh
-echo "your-vault-password" > .vault_pass
-chmod 600 .vault_pass
+**Four independent random secrets** — `openssl rand -hex 32`, once each:
+
+| Variable | Purpose |
+|---|---|
+| `vault_authelia_session_secret` | Signs the browser session cookie |
+| `vault_authelia_storage_encryption_key` | Encrypts Authelia's SQLite DB (TOTP keys, remember-me tokens) |
+| `vault_authelia_jwt_secret` | Signs password-reset tokens |
+| `vault_authelia_oidc_hmac_secret` | Used in OIDC token derivation |
+
+**OIDC issuer signing key** (`vault_authelia_oidc_jwks_key`) — RSA private key:
+
+```bash
+openssl genrsa 4096
 ```
 
-### 3. Check image versions
+Authelia uses it to sign the JWT tokens it issues to Nextcloud and Forgejo;
+each app verifies the signature against the public key Authelia publishes at
+`https://<domain>/auth/.well-known/jwks.json`. Paste the entire PEM (including
+`BEGIN`/`END` lines) into the vault, indented two spaces under the `|`.
+**Generate a fresh key per host — never share it across instances.**
 
-`ansible/group_vars/all/vars.yml` pins every image to a `major.minor` tag.
-Before deploying, verify the pinned tags are still current — especially Forgejo,
-which has a short support window (~3 months per non-LTS release):
+**OIDC client secrets** — one matched (plaintext + hash) pair per app:
+
+```bash
+# Run once for Forgejo, once for Nextcloud:
+podman run --rm docker.io/authelia/authelia:4.39 \
+  authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 48
+# -> "Random Password" = *_client_secret      (plaintext, used by the app)
+# -> "Digest"          = *_client_secret_hash  (hash, stored by Authelia)
+```
+
+**At least one Authelia user** — see
+[User management](#user-management-approval-workflow) for the `authelia_users`
+format and how to generate `password_hash`.
+
+### 6. Verify image versions
+
+`group_vars/all/vars.yml` pins every image to a `major.minor` tag. Before
+deploying, confirm the pins are still current — especially Forgejo, which has a
+short support window (~3 months per non-LTS release):
 
 - Forgejo releases: <https://forgejo.org/releases/>
 - Nextcloud: <https://hub.docker.com/_/nextcloud>
 - Traefik: <https://hub.docker.com/_/traefik>
 
----
+### 7. Run the playbook
 
-## Running the playbook
-
-Use the wrapper script from the repo root:
+Use the wrapper from the repo root:
 
 ```sh
-./deploy.sh                        # full run
-./deploy.sh --limit spqr-project   # single host
-./deploy.sh --tags forgejo         # single role
+./deploy.sh                      # all hosts, full run
+./deploy.sh --limit myserver     # one host
+./deploy.sh --tags forgejo       # one role
 ```
 
-The script auto-detects credentials:
+`deploy.sh` auto-detects credentials and forwards any extra flags
+(`--limit`, `--tags`, `--check`, …) to `ansible-playbook`:
 
-- **Vault password** — if `.vault_pass` exists next to `deploy.sh`, it is used
-  automatically (no interactive prompt). Otherwise you are asked for it.
-  Save the vault password there once:
-  ```sh
-  echo "your-vault-password" > .vault_pass
-  chmod 600 .vault_pass   # already in .gitignore
-  ```
-- **Sudo password** — if `ansible_become_pass` is wired up in `group_vars`
-  (via `vault_become_pass` in the vault), sudo is handled automatically.
-  Otherwise you are prompted. To stop being asked, add to the vault and wire it:
-  ```sh
+- **Vault password** — uses `.vault_pass` if present, otherwise prompts.
+- **Sudo password** — handled automatically if `vault_become_pass` is set and
+  wired up; otherwise prompts. To stop being prompted:
+  ```yaml
   # host_vars/<host>/vault.yml:
   vault_become_pass: "your_sudo_password"
-
   # group_vars/all/vars.yml:
   ansible_become_pass: "{{ vault_become_pass }}"
   ```
 
-Any extra flags are forwarded to `ansible-playbook`, so `--limit`, `--tags`,
-`--check`, etc. all work as usual.
+### 8. Verify the deployment
+
+After the run completes:
+
+```sh
+curl -sS -o /dev/null -w "site:  %{http_code}\n" https://example.com/
+curl -sS -o /dev/null -w "cloud: %{http_code}\n" https://example.com/cloud/
+curl -sS -o /dev/null -w "git:   %{http_code}\n" https://example.com/git/
+curl -sS -o /dev/null -w "auth:  %{http_code}\n" https://example.com/auth/
+```
+
+`200`/`302` means the service is up. If you get `502`, Traefik is still holding
+a stale backend — see [RUNBOOK.md](RUNBOOK.md) for diagnostics. First-deploy
+certificate issuance can take a minute; see
+[Let's Encrypt certificates](#lets-encrypt-certificates) if it stalls.
 
 ---
 
-## What each role does
+## Services reference
+
+What each role deploys. To run only some services on a host, edit
+`ansible/site.yml`.
 
 ### `traefik`
 
 The only container with host ports (80, 443, 2222). Discovers all other
-containers via the rootless Podman API socket and routes traffic based on
-`traefik.*` labels. Issues and renews TLS certificates automatically via
-Let's Encrypt HTTP-01. Also TCP-forwards Forgejo's git-over-SSH on port 2222.
+containers via the rootless Podman API socket and routes by `traefik.*` labels.
+Issues and renews TLS certificates via Let's Encrypt HTTP-01. Also TCP-forwards
+Forgejo's git-over-SSH on port 2222.
 
 ### `static_site`
 
 Nginx serving a read-only bind-mount from `roles/static_site/files/site/`.
-Acts as the catch-all router (matches everything that `/cloud` and `/git`
-don't claim). Replace `index.html` with your actual landing page content.
+Catch-all router (matches everything `/cloud` and `/git` don't claim). Replace
+`index.html` with your landing page.
 
 ### `nextcloud`
 
-Three containers: the Nextcloud app (Apache variant), MariaDB, and Valkey
-(a Redis-compatible cache with a permissive open-source licence).
-
-Mounted at `/cloud` via Traefik's StripPrefix middleware — Nextcloud receives
-requests at `/` and rebuilds `/cloud` URLs itself via the `OVERWRITEWEBROOT`
-env var.
-
-> **Note:** Nextcloud does not officially support subpath installs. This setup
-> works in practice but may break on major upgrades. If you hit issues, the
-> fallback is a dedicated subdomain (`cloud.example.com`).
+Three containers: the Nextcloud app (Apache), MariaDB, and Valkey (a
+Redis-compatible cache). Mounted at `/cloud` via Traefik's StripPrefix — see
+[Nextcloud subpath install notes](#nextcloud-subpath-install-notes) for the
+mechanics and what to check after upgrades.
 
 ### `forgejo`
 
-Two containers: Forgejo app and its own MariaDB instance. Mounted at `/git`
-via Traefik's StripPrefix middleware — Forgejo receives requests at `/` and
-reconstructs `/git` URLs itself via `ROOT_URL` in `app.ini`.
+Two containers: Forgejo app and its own MariaDB. Mounted at `/git` via
+StripPrefix; Forgejo reconstructs `/git` URLs via `ROOT_URL`.
 
-SSH git access is on port 2222 (TCP-forwarded through Traefik):
-
-```sh
-# Clone explicitly with the port:
-git clone ssh://git@example.com:2222/owner/repo.git
-```
-
-Add a `~/.ssh/config` entry on your local machine to avoid specifying the port
-every time and to select the right key:
+SSH git access is on port 2222. Add a `~/.ssh/config` entry on your local
+machine so you can use short remotes without specifying the port each time:
 
 ```
 Host example.com
@@ -187,134 +281,99 @@ Host example.com
     IdentityFile ~/.ssh/id_ed25519   # the key registered in your Forgejo profile
 ```
 
-With that block in place you can use the short form everywhere — clone, push,
-pull, and `git remote add` — without the explicit `ssh://git@…:2222` prefix:
+With that in place:
 
 ```sh
 git clone example.com:owner/repo.git
 git remote add origin example.com:owner/repo.git
 ```
 
+(Without the config block, clone explicitly:
+`git clone ssh://git@example.com:2222/owner/repo.git`.)
+
 ### `authelia`
 
-Single sign-on identity provider (OIDC). On by default (`enable_authelia: true`).
-Serves at `https://<domain>/auth`. Users log in here once and the token is
-accepted by both Nextcloud and Forgejo. See the
-[Authelia SSO](#authelia-sso-oidc-single-sign-on) section below for setup,
-user management, and the password-change workflow.
+Single sign-on identity provider (OIDC), on by default. Serves at `/auth`;
+Nextcloud and Forgejo accept its tokens. Full detail in
+[Authelia SSO](#authelia-sso-oidc-single-sign-on).
 
-### `collabora`
+### `collabora` / `eurooffice`
 
-Collabora Online document server (secondary). Connected to Nextcloud via the
-`richdocuments` app. Runs on the internal `edge` network; not exposed directly.
-
-### `eurooffice`
-
-EuroOffice Document Server (primary, ONLYOFFICE-compatible). Connected to
-Nextcloud via the `eurooffice` app. Like Collabora it runs on the internal
-network only. Both document servers are deployed; Nextcloud uses EuroOffice
-by default — Collabora is available as a fallback.
+Two document servers connected to Nextcloud (Collabora via `richdocuments`,
+EuroOffice via the `eurooffice` app). Both run on the internal `edge` network
+only. Nextcloud uses **EuroOffice by default**; Collabora is the fallback.
 
 ---
 
 ## Authelia SSO (OIDC single sign-on)
 
-> **Status: on by default** (`enable_authelia: true` in
-> `group_vars/all/vars.yml`). Authelia is the **preferred login method** for
-> all regular users. The local admin accounts (set in the vault) bypass
-> Authelia and are used only for initial setup or emergency access.
+> **On by default** (`enable_authelia: true`). Authelia is the preferred login
+> method for all regular users. The local admin accounts (set in the vault)
+> bypass Authelia and are for initial setup or emergency access only.
 
 Authelia provides a **single login shared across Nextcloud and Forgejo**: users
 authenticate once at `https://<domain>/auth` and the OIDC token is accepted by
 both apps. It also provides a reusable forward-auth middleware for protecting
-any other route that has no login of its own.
+any route that has no login of its own.
 
-### Architecture
-
-```
-Browser → Traefik → https://<domain>/auth  →  Authelia portal + OIDC provider
-                  → https://<domain>/cloud  →  Nextcloud  ─┐
-                  → https://<domain>/git    →  Forgejo    ─┴─ delegate login to Authelia via OIDC
-```
-
-Authelia is deployed as a single container on the `edge` network, served under
-`/auth` on the main domain (no extra subdomain needed). It acts as an OpenID
-Connect provider; Nextcloud and Forgejo are pre-registered as OIDC clients.
+Deployment is covered in [step 5](#5-generate-authelia--oidc-secrets) of the
+guide. This section covers running it: users, passwords, and account linking.
 
 ### The Authelia portal (`/auth`)
 
-`https://<domain>/auth` is the Authelia user-facing portal. From here users can:
-
-- Log in (the SSO entry point — clicking "Sign in with authelia" in Forgejo or
-  "Log in with Authelia" in Nextcloud both redirect here first).
-- Manage TOTP second factor (if configured).
-- **Reset their password** — generates a reset token and either emails it (when
-  `enable_smtp: true`) or writes it to `/config/notification.txt` inside the
-  Authelia container. Without SMTP the admin must retrieve the token and pass it
-  to the user out-of-band:
-  ```bash
-  sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
-    podman exec authelia cat /config/notification.txt
-  ```
-  The printed URL contains the reset token; send it to the user manually.
+`https://<domain>/auth` is the user-facing portal. From here users can log in
+(the SSO entry point), manage a TOTP second factor, and reset their password.
+Password reset emails the reset token when SMTP is on; without SMTP, retrieve
+the token manually — see [Without SMTP](#without-smtp).
 
 ### User management (approval workflow)
 
 There is **no self-service registration**: a person can log in only if you have
-explicitly added them to the `authelia_users` list in your **per-host**
-encrypted vault. Adding someone to that list *is* the approval step. Because the
-list is per host, each instance (`spqr-project`, …) has its own users — they are
-not shared.
+added them to the `authelia_users` list in the **per-host** vault. Adding the
+entry *is* the approval step. Each instance has its own users.
 
 ```yaml
-# In host_vars/<host>/vault.yml (encrypted):
+# host_vars/<host>/vault.yml (encrypted):
 authelia_users:
   - username: "alice"
     displayname: "Alice Rossi"
     email: "alice@polimi.it"
-    password_hash: "$argon2id$v=19$..."   # generated with authelia crypto hash
-    groups: [users]
+    password_hash: "$argon2id$v=19$..."
+    groups: [users]            # "admins" grants admin in Nextcloud
 ```
 
-The `password_hash` is required and is the source of truth — a username with no
-hash makes Authelia refuse to start (the role asserts this up front). Generate
-it with:
+`password_hash` is required and is the source of truth — a user with no hash
+makes Authelia refuse to start (the role asserts this). Generate it with:
 
 ```bash
 podman run --rm docker.io/authelia/authelia:4.39 \
   authelia crypto hash generate argon2 --password 'TheirPassword'
 ```
 
-Re-run the playbook after any change. To revoke access: set `disabled: true` or
-remove the entry entirely.
+Re-run the playbook after any change. To revoke access, set `disabled: true` or
+remove the entry.
 
 #### Adding a user without running the playbook
 
-If you need to give someone access immediately, edit the live file on the server
-directly. The file backend runs with `watch: true`, so Authelia hot-reloads the
-file on change — no restart needed:
+To grant access immediately, edit the live file on the server. The file backend
+runs with `watch: true`, so Authelia hot-reloads on change — no restart needed.
 
-1. Generate the hash (on the server or your local machine):
-   ```bash
-   podman run --rm docker.io/authelia/authelia:4.39 \
-     authelia crypto hash generate argon2 --password 'TheirPassword'
-   ```
+1. Generate the hash (command above).
 2. Edit the file **as the `containers` user** so ownership is preserved:
    ```bash
    sudo -u containers nano /etc/authelia/users_database.yml
    ```
    > **Critical:** do NOT edit with plain `sudo nano`. That saves the file owned
-   > by `root`, after which Authelia (running as `containers`) can no longer read
-   > it — the watcher's reload fails with `permission denied` and Authelia keeps
-   > the *old* data in memory (e.g. a stale email, so reset mail keeps going to
-   > the old address). If you already did this, fix ownership:
+   > by `root`; Authelia (running as `containers`) can then no longer read it —
+   > the reload fails with `permission denied` and Authelia keeps the *old* data
+   > in memory (e.g. a stale email, so reset mail keeps going to the old
+   > address). If you already did this, fix ownership:
    > ```bash
    > sudo chown containers:containers /etc/authelia/users_database.yml
    > sudo chmod 600 /etc/authelia/users_database.yml
    > ```
-
-   Add the new entry under `users:` (note: the key in this file is `password`,
-   not `password_hash`):
+   Add the entry under `users:` (note: the key here is `password`, **not**
+   `password_hash`):
    ```yaml
      newuser:
        displayname: "New User"
@@ -323,91 +382,66 @@ file on change — no restart needed:
        groups:
          - users
    ```
-3. Save. Authelia reloads within a second or two. **Confirm the reload was
-   clean** — a YAML error *or a permission-denied* keeps the old data in memory:
+3. Save, then **confirm the reload was clean** — a YAML error or permission
+   problem makes Authelia silently keep the old data:
    ```bash
    sudo journalctl _SYSTEMD_USER_UNIT=container-authelia.service -n 10
    ```
-   You want a successful reload line and no `Error occurred during reload`. If
-   the change still isn't applied, restart Authelia **and Traefik** — restarting
-   Authelia alone gives it a new container IP and leaves Traefik serving a 502
-   until it re-discovers (see RUNBOOK.md for the `scont` helper used here):
+   Look for a successful reload and no `Error occurred during reload`. If the
+   change still isn't applied, restart Authelia **and Traefik** (Authelia alone
+   gets a new IP, leaving Traefik on a 502 until it re-discovers):
    ```bash
    scont systemctl --user restart container-authelia.service
    scont systemctl --user restart container-traefik.service
    ```
 
 > **Make it permanent:** the next playbook run overwrites this file from the
-> vault. Before then, add the entry to `host_vars/<host>/vault.yml`
-> (`ansible-vault edit`) using `password_hash` instead of `password`:
-> ```yaml
-> - username: "newuser"
->   displayname: "New User"
->   email: "newuser@example.com"
->   password_hash: "$argon2id$v=19$..."
->   groups: [users]
-> ```
+> vault. Add the same user to `host_vars/<host>/vault.yml` (`ansible-vault
+> edit`) using `password_hash` instead of `password`. (`scont` is the server
+> helper alias documented in [RUNBOOK.md](RUNBOOK.md).)
 
 ### Changing a password — and why the vault is the source of truth
 
 The `password_hash` in the vault is the **authoritative** copy. The playbook
-renders `users_database.yml` from `authelia_users` on every run and overwrites
-the file inside the container. This has one important consequence:
+re-renders `users_database.yml` from `authelia_users` on every run, so:
 
-> **Anything that changes a password *only* inside the container is temporary.**
-> The next `ansible-playbook` run re-renders `users_database.yml` from the vault
-> and reverts to the hash stored there — the user is then locked out with their
-> old password.
+> **Anything that changes a password only inside the container is temporary.**
+> The next playbook run reverts it to the vault's hash, locking the user out
+> with their old password.
 
-So a password change is **not** complete until the new hash is back in the vault.
+A password change is not complete until the new hash is in the vault.
 
-**A. Admin changes it (recommended, works without SMTP):**
+**A. Admin changes it (works without SMTP):**
 
-1. Generate a new hash:
-   ```bash
-   podman run --rm docker.io/authelia/authelia:4.39 \
-     authelia crypto hash generate argon2 --password 'TheNewPassword'
-   ```
-2. Replace that user's `password_hash` in the vault:
-   ```bash
-   ansible-vault edit host_vars/<host>/vault.yml
-   ```
-3. Re-run the playbook. Done — vault and container now agree.
+1. Generate a new hash (the `argon2` command above).
+2. `ansible-vault edit host_vars/<host>/vault.yml` → replace that user's
+   `password_hash`.
+3. Re-run the playbook. Vault and container now agree.
 
-**B. User self-resets via the portal (requires SMTP configured):**
+**B. User self-resets via the portal (requires SMTP):**
 
-If `enable_smtp` is on, the portal's *Forgot password?* link emails a reset
-token; completing it rewrites `users_database.yml` **inside the container only**.
-That works immediately, but to survive the next deploy you must pull the new
-hash back into the vault:
+The portal's *Forgot password?* link rewrites `users_database.yml` **inside the
+container only**. To make it survive the next deploy, harvest the new hash:
 
-1. Read the hash Authelia just wrote. The user file is bind-mounted from the
-   host, so read it directly (note: the key in this file is `password`):
+1. Read the hash Authelia wrote (the file is bind-mounted on the host):
    ```bash
    sudo grep -A5 'USERNAME' /etc/authelia/users_database.yml
    ```
-2. Copy that user's new `password` field into `password_hash` in
+2. Copy that user's `password` field into `password_hash` in
    `host_vars/<host>/vault.yml` (`ansible-vault edit`).
-3. Re-run the playbook so vault and container stay in sync.
-
-Until you do steps 2–3, treat the reset as provisional: a redeploy will undo it.
+3. Re-run the playbook.
 
 > **During a testing phase, prefer method B.** Don't ask users to send you a
 > password or a hash — they have no easy way to generate an argon2 hash, and you
-> don't want plaintext passwords landing in your inbox. Instead let each user
-> self-reset through the portal (they pick a password you never see), then you
-> **harvest the resulting hash** from `users_database.yml` (step 1 above) and
-> fold it into the vault. The hash is safe to handle and store in the vault; the
-> plaintext stays with the user. Do the harvest once per user before the next
-> deploy, or batch it just before you redeploy — any un-harvested reset is
-> reverted by the playbook.
+> don't want plaintext passwords in your inbox. Let each user self-reset (they
+> pick a password you never see), then harvest the hash into the vault before
+> the next deploy. The hash is safe to store; the plaintext stays with the user.
 
-> **Future upgrade path:** this file-backend friction scales fine to a few dozen
-> users. When self-service password management becomes a real need, switch
-> Authelia's `authentication_backend` from `file` to **LDAP** (e.g.
-> lldap/OpenLDAP): users then own their passwords in the directory, the vault no
-> longer holds hashes, and the whole revert problem disappears — without touching
-> anything in Nextcloud or Forgejo.
+> **Future upgrade path:** the file backend scales fine to a few dozen users.
+> When self-service password management becomes a real need, switch Authelia's
+> `authentication_backend` from `file` to **LDAP** (e.g. lldap/OpenLDAP): users
+> then own their passwords in the directory, the vault no longer holds hashes,
+> and the revert problem disappears — without touching Nextcloud or Forgejo.
 
 ### Linking existing accounts
 
@@ -416,63 +450,60 @@ rather than creating a duplicate, **provided the email/username match** the
 `authelia_users` entry:
 
 - **Forgejo** prompts for the existing password once on first OIDC login to link
-  the accounts (visible afterwards under Settings → Security).
-- **Nextcloud** keys on the `preferred_username` claim (`--mapping-uid`), so the
-  same username lands in the same account. Nextcloud has no per-user "linked
-  accounts" UI — confirm with `occ user:list` (no duplicate) and `occ user:info`.
+  the accounts (afterwards visible under Settings → Security).
+- **Nextcloud** keys on the `preferred_username` claim, so the same username
+  lands in the same account. Confirm with `occ user:list` (no duplicate).
 
-### Enabling it
+### Implementation notes (same-host OIDC quirks)
 
-1. Open `host_vars/<host>/vault.yml.example` — every variable has an inline
-   comment explaining what it is, who uses it, and how to generate it. The
-   non-obvious ones are summarised below.
+Because Authelia, Nextcloud and Forgejo run on one host behind one domain, the
+roles handle three non-obvious issues automatically:
 
-   **Four independent random secrets** (each a different internal purpose):
-   ```bash
-   openssl rand -hex 32   # run four times, one result per secret
-   ```
-   | Variable | Purpose |
-   |---|---|
-   | `vault_authelia_session_secret` | Signs the browser session cookie |
-   | `vault_authelia_storage_encryption_key` | Encrypts Authelia's SQLite database (TOTP keys, remember-me tokens) |
-   | `vault_authelia_jwt_secret` | Signs password-reset tokens |
-   | `vault_authelia_oidc_hmac_secret` | Used in OIDC token derivation |
+- **`/etc/hosts` hairpin.** Podman copies the host's `/etc/hosts`, mapping the
+  FQDN to `127.0.1.1`. Server-side OIDC calls would dial loopback and fail, so
+  the Forgejo/Nextcloud containers get an `etc_hosts` override mapping the
+  domain to the real host IP.
+- **Nextcloud SSRF block.** Nextcloud's HTTP client refuses same-host addresses
+  by default (`LocalServerException`). The role sets
+  `allow_local_remote_servers=true` when Authelia is enabled.
+- **Traefik backend refresh.** Authelia gets a fresh IP on each deploy, so the
+  role restarts Traefik right after (re)creating it. Manually restarting any app
+  container likewise needs a Traefik restart after.
 
-   **OIDC issuer signing key** (`vault_authelia_oidc_jwks_key`):
-   ```bash
-   openssl genrsa 4096
-   ```
-   This is an RSA private key. Authelia uses it to **sign the JWT tokens** it
-   issues to Nextcloud and Forgejo after a successful login; each app verifies
-   the signature against the matching public key, which Authelia publishes
-   automatically at `https://<domain>/auth/.well-known/jwks.json`. Paste the
-   entire PEM output (including `BEGIN`/`END` lines) into the vault, indented
-   by two spaces under the block scalar `|`. **Do not share this key across
-   instances** — generate a fresh one per server.
+### Forward-auth for bare routes
 
-   **OIDC client secrets** — one matched (plaintext + hash) pair per app:
-   ```bash
-   # Run once for Forgejo, once for Nextcloud:
-   podman run --rm docker.io/authelia/authelia:4.39 \
-     authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 48
-   # -> "Random Password" = *_client_secret     (plaintext, sent to the app)
-   # -> "Digest"          = *_client_secret_hash (hash, stored in Authelia)
-   ```
-   Authelia stores only the hash; the plaintext goes into the app's OIDC
-   configuration (Forgejo admin panel, Nextcloud user_oidc app).
+Any route with no login of its own can be protected by attaching the
+`authelia@docker` middleware on that container's Traefik labels:
 
-2. `enable_authelia: true` is already the default in `group_vars/all/vars.yml`.
-   If you turned it off, flip it back there or override it in
-   `host_vars/<host>/vars.yml`.
-3. Run the playbook.
+```yaml
+traefik.http.routers.<name>.middlewares: "authelia@docker"
+```
 
-### SMTP relay (per-host, optional)
+Unauthenticated requests are redirected to the Authelia portal first.
+
+### Caveats
+
+- **Schema version.** The config targets Authelia **4.39**. If you pin a
+  different tag, the usual breaking points are `server.address` path syntax, the
+  `jwks` structure under `identity_providers.oidc`, and the notifier address
+  scheme. Check `podman logs authelia` after a bump.
+- **Subpath issuer.** Because Authelia is under `/auth`, the issuer is
+  `https://<domain>/auth` and discovery is at
+  `https://<domain>/auth/.well-known/openid-configuration`. Issuer-mismatch
+  errors usually trace to this prefix.
+- **Forgejo auth-source idempotency.** The role adds the `authelia` OIDC source
+  only if absent. If you change the client secret later, remove and re-add:
+  `forgejo admin auth delete-oauth --id <id>`, then re-run the playbook.
+- **Nextcloud groups.** `user_oidc` maps username, email, and name from the
+  token but ignores Authelia groups. Manage Nextcloud group membership manually.
+
+---
+
+## SMTP relay (optional)
 
 SMTP enables password-reset emails from Authelia (and mailer support in
-Nextcloud and Forgejo). It is off by default (`enable_smtp: false` in
-`group_vars/all/vars.yml`) and configured **per host** — each instance can use
-a different relay. To enable it for one host, add to
-`host_vars/<host>/vars.yml`:
+Nextcloud and Forgejo). It is **off by default** and configured per host. To
+enable it, add to `host_vars/<host>/vars.yml`:
 
 ```yaml
 enable_smtp: true
@@ -482,54 +513,43 @@ smtp_security: "starttls"           # starttls (587) | tls (465) | none (25)
 smtp_from: "noreply@yourdomain.com" # must be on an authenticated domain
 ```
 
-And in `host_vars/<host>/vault.yml` (encrypted):
+and the credentials to `host_vars/<host>/vault.yml`:
 
 ```yaml
 vault_smtp_user:     "your-relay-login"
 vault_smtp_password: "your-relay-password-or-api-key"
 ```
 
-#### Choosing a relay — Brevo (recommended, free)
+### Choosing a relay — Brevo (recommended, free)
 
-Direct SMTP from the server IP is rejected by most mail providers. A free
-relay is the practical solution. **[Brevo](https://www.brevo.com)** offers
-300 emails/day (9,000/month) permanently on the free tier, with full SMTP
-relay support — more than enough for password-reset and notification emails
-on a small team server.
+Direct SMTP from the server IP is rejected by most providers; a free relay is
+the practical solution. **[Brevo](https://www.brevo.com)** offers 300 emails/day
+permanently on the free tier with full SMTP relay support — plenty for
+password-reset and notification mail on a small team server.
 
-**Important:** since February 2024, all major mail providers (Gmail, Outlook,
-university mail servers) require **SPF, DKIM and DMARC** records on the
-sender domain. Mail from an unauthenticated domain is silently dropped or
-rejected. This means:
+**Important:** since February 2024 all major providers require **SPF, DKIM and
+DMARC** on the sender domain, or mail is silently dropped. So:
 
-- You cannot send `From: noreply@<your-polimi-subdomain>` unless Polimi IT
-  adds the DNS records (they are unlikely to do this).
-- **Use a domain you control** for `smtp_from` (e.g. a personal or project
-  domain registered with any registrar). Add the three DNS records Brevo
-  provides in your registrar's DNS panel — this takes minutes and no IT
-  department involvement.
+- You cannot send from `noreply@<your-polimi-subdomain>` unless Polimi IT adds
+  the DNS records (unlikely).
+- **Use a domain you control** for `smtp_from` and add Brevo's DNS records in
+  your registrar's panel — minutes, no IT department.
 
 **Setup steps:**
 
 1. Create a free account at [brevo.com](https://www.brevo.com).
-2. Settings → Senders & IP → Domains → **Add a domain** (use a domain you
-   control, not the Polimi subdomain).
-3. Brevo shows three DNS records (SPF, DKIM, DMARC). Add them in your
-   registrar's DNS panel. Notes:
-   - **SPF:** merge with any existing SPF record — never have two SPF TXT
-     records on the same name. Combine as:
-     `v=spf1 include:_spf.aruba.it include:spf.brevo.com ~all`
-   - **DMARC:** if one already exists, merge the two into one record.
-4. Click **Verify** in Brevo (propagation is usually 15–30 min, up to 48h).
-5. Settings → SMTP & API → SMTP → **Generate a new SMTP key**. Copy it
-   (shown only once).
-6. Security → Authorized IPs → add your server's public IP
+2. Settings → Senders & IP → Domains → **Add a domain** (one you control).
+3. Add the three DNS records Brevo shows (SPF, DKIM, DMARC) in your registrar.
+   - **SPF:** merge with any existing SPF record — never two SPF TXT records on
+     one name, e.g. `v=spf1 include:_spf.aruba.it include:spf.brevo.com ~all`.
+   - **DMARC:** if one exists, merge into a single record.
+4. Click **Verify** in Brevo (15–30 min typical, up to 48h).
+5. Settings → SMTP & API → SMTP → **Generate a new SMTP key** (shown once).
+6. Security → Authorized IPs → add the server's public IP
    (`curl -sS https://api.ipify.org`), then enable IP blocking.
-7. Fill in `host_vars/<host>/vars.yml` and vault as above, with
-   `smtp_host: "smtp-relay.brevo.com"` and `smtp_from` on your verified
-   domain.
+7. Fill in `vars.yml` + vault as above.
 
-**Test before redeploying** (replace values with your own):
+**Test before redeploying:**
 
 ```bash
 swaks \
@@ -544,95 +564,39 @@ swaks \
   --body 'Relay is working.'
 ```
 
-#### Without SMTP
+### Without SMTP
 
-Authelia writes password-reset tokens to `/config/notification.txt` inside
-its container. Retrieve the link and forward it to the user manually:
+Authelia writes password-reset tokens to `/config/notification.txt` inside its
+container. Retrieve the link and forward it to the user manually:
 
 ```bash
 sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
   podman exec authelia cat /config/notification.txt
 ```
 
-### Implementation notes (same-host OIDC quirks)
-
-Because Authelia, Nextcloud and Forgejo all run on one host behind one domain,
-the roles handle two non-obvious issues automatically:
-
-- **`/etc/hosts` hairpin.** Podman copies the host's `/etc/hosts`, which maps the
-  FQDN to `127.0.1.1`. Server-side OIDC calls (discovery fetch, token exchange)
-  would dial loopback and fail. The Forgejo and Nextcloud containers get an
-  `etc_hosts` override mapping the domain to the real host IP, so those calls
-  reach Traefik's published `:443` with a valid certificate.
-- **Nextcloud SSRF block.** Nextcloud's HTTP client refuses to contact
-  local/same-host addresses by default, raising `LocalServerException`
-  ("Could not reach the OpenID Connect provider"). The role sets
-  `allow_local_remote_servers=true` when Authelia is enabled.
-- **Traefik backend refresh.** Authelia gets a fresh container IP on each
-  deploy, so the role restarts Traefik right after (re)creating Authelia to
-  avoid a stale-backend `502` during the Forgejo/Nextcloud OIDC registration.
-  Likewise, manually restarting any app container needs a Traefik restart after.
-
-### Forward-auth for bare routes
-
-Any route with no login of its own can be protected by attaching the
-`authelia@docker` middleware on that container's Traefik labels:
-
-```yaml
-traefik.http.routers.<name>.middlewares: "authelia@docker"
-```
-
-Unauthenticated requests are redirected to the Authelia portal first.
-
-### Caveats and operational notes
-
-- **Authelia schema version.** The config targets Authelia **4.39**. If you pin
-  a different tag, verify compatibility — the usual breaking points between
-  releases are the `server.address` path syntax, the `jwks` key structure under
-  `identity_providers.oidc`, and the notifier address scheme (e.g.
-  `submission://` vs `smtp+starttls://`). Check container logs after a version
-  bump:
-  ```bash
-  sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
-    podman logs authelia
-  ```
-- **Subpath OIDC issuer.** Because Authelia is under `/auth`, the issuer is
-  `https://<domain>/auth` and discovery is at
-  `https://<domain>/auth/.well-known/openid-configuration`. If an app complains
-  about an issuer mismatch, check this prefix first.
-- **Forgejo auth source idempotency.** The role adds the `authelia` OIDC source
-  only if it does not already appear in `forgejo admin auth list`. If you change
-  the client secret later, remove and re-add the source:
-  `forgejo admin auth delete-oauth --id <id>`, then re-run the playbook.
-- **Nextcloud groups.** `user_oidc` maps `preferred_username`, `email`, and
-  `name` from the OIDC token. Group sync from Authelia is not wired — Authelia
-  groups flow in the token but Nextcloud ignores them. Manage group membership
-  manually in Nextcloud if needed.
-- **Bind-mount permissions.** Authelia writes `db.sqlite3` and (without SMTP)
-  `notification.txt` into `/etc/authelia`. If it logs permission errors under
-  rootless Podman, check ownership of `/etc/authelia` (`containers` user).
-
 ---
 
-## After deployment
+## Day-2 operations
+
+For logs, diagnostics, and common failure fixes, see
+**[RUNBOOK.md](RUNBOOK.md)**. The lifecycle topics below live here.
 
 ### Let's Encrypt certificates
 
-Traefik requests certificates from **Let's Encrypt production** immediately on
-first deploy. Certificates are stored in `/etc/traefik/letsencrypt/acme.json`
-on the host (bind-mounted into the Traefik container) and renewed automatically.
+Traefik requests certificates from **Let's Encrypt production** on first deploy.
+They are stored in `/etc/traefik/letsencrypt/acme.json` (bind-mounted into the
+container) and renewed automatically.
 
-If you want to test the stack before going live (e.g. to avoid hitting
-Let's Encrypt's rate limits during iteration), add the staging CA flag to the
+To test the stack without hitting rate limits, add the staging CA flag to the
 `Run traefik` task in `roles/traefik/tasks/main.yml`:
 
 ```yaml
 - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
 ```
 
-Staging issues untrusted certs but has no rate limits. When you're ready for
-production, remove that line, re-run the traefik role, and delete `acme.json`
-so a fresh certificate is requested:
+Staging issues untrusted certs but has no rate limits. For production, remove
+that line, re-run the traefik role, and delete `acme.json` to force a fresh
+cert:
 
 ```sh
 # On the server, as the containers user:
@@ -642,83 +606,68 @@ systemctl --user restart container-traefik.service
 
 ### Automatic image updates
 
-The traefik role enables `podman-auto-update.timer`, which checks daily for
-new patch releases published under the same `major.minor` tag and restarts
-affected containers. To bump a major or minor version, update the tag in
-`group_vars/all/vars.yml` and re-run the relevant playbook.
+The traefik role enables `podman-auto-update.timer`, which checks daily for new
+patch releases under the same `major.minor` tag and restarts affected
+containers. To bump a major or minor version, change the tag in
+`group_vars/all/vars.yml` and re-run the relevant role.
 
 ### Nextcloud major version upgrades
 
-Nextcloud refuses to skip a major version. Upgrade one major version at a
-time: update the image tag, run the playbook, wait for the upgrade to
-complete, then repeat for the next major version.
+Nextcloud refuses to skip a major version. Upgrade one major at a time: update
+the tag, run the playbook, wait for the upgrade to finish, then repeat.
 
 ---
 
 ## Nextcloud subpath install notes
 
 Nextcloud does not officially support running under a subpath (`/cloud` instead
-of the domain root). The setup works in practice but requires several hacks that
-are all baked into the role — documented here so you know what to touch if
-something breaks after a Nextcloud upgrade.
+of the domain root). It works in practice but needs several hacks, all baked
+into the role — documented here so you know what to touch if a Nextcloud upgrade
+breaks something.
 
 ### 1. Traefik StripPrefix + OVERWRITE* env vars (the core trick)
 
-Traefik routes `https://<domain>/cloud/…` to the Nextcloud container but
-**strips the `/cloud` prefix** before forwarding, so Nextcloud receives every
-request at `/` (which is what it expects). Nextcloud then rebuilds all URLs it
-generates using three env vars:
+Traefik routes `https://<domain>/cloud/…` to Nextcloud but **strips `/cloud`**
+before forwarding, so Nextcloud receives requests at `/`. Nextcloud rebuilds its
+URLs via three env vars:
 
 | Env var | Value | Purpose |
 |---|---|---|
-| `OVERWRITEWEBROOT` | `/cloud` | Prepends `/cloud` to every internal URL Nextcloud generates |
-| `OVERWRITEHOST` | `<domain>` | Overrides the `Host` Nextcloud sees (needed behind a proxy) |
-| `OVERWRITEPROTOCOL` | `https` | Forces HTTPS in generated URLs regardless of what reaches the container |
+| `OVERWRITEWEBROOT` | `/cloud` | Prepends `/cloud` to every internal URL |
+| `OVERWRITEHOST` | `<domain>` | Overrides the `Host` Nextcloud sees behind the proxy |
+| `OVERWRITEPROTOCOL` | `https` | Forces HTTPS in generated URLs |
 
-Without `OVERWRITEWEBROOT`, Nextcloud would generate links pointing at the
-domain root and all redirects and asset URLs would break.
+Without `OVERWRITEWEBROOT`, links would point at the domain root and break.
 
 ### 2. CLI URL (overwrite.cli.url)
 
-The `overwrite.cli.url` system config is set to `https://<domain>/cloud/` via
-`occ config:system:set`. This is used by background jobs and CLI commands that
-need to generate absolute URLs outside of an HTTP request context. Without it,
-cron jobs and some admin self-checks emit bare-domain URLs.
+Set to `https://<domain>/cloud/` via `occ config:system:set`, used by background
+jobs and CLI commands that build absolute URLs outside an HTTP request.
 
-> **Known cosmetic issue:** the container cannot reach the public URL from inside
-> itself (hairpin NAT). Some admin panel self-tests will show "could not check"
-> or "not reachable" — the actual features work fine; only internal reachability
-> tests are affected.
+> **Known cosmetic issue:** the container can't reach its own public URL
+> (hairpin NAT), so some admin self-tests show "could not check". The features
+> work; only the internal reachability test is affected.
 
 ### 3. Federation discovery routes at the domain root
 
-Two Nextcloud endpoints (`/ocm-provider` and `/ocs-provider`) must be served at
-the **domain root**, not under `/cloud`, for federation with other Nextcloud
-instances. They each get their own Traefik router with no StripPrefix, so
-requests go straight to Nextcloud unmodified. Attempting to combine these into
-one router with an `||` rule in the Traefik label causes Traefik v3 to silently
-reject the entire container's label set, so they are intentionally two separate
-routers.
+`/ocm-provider` and `/ocs-provider` must be served at the **domain root**, not
+under `/cloud`, for federation. Each gets its own Traefik router with no
+StripPrefix. Combining them with an `||` rule makes Traefik v3 silently reject
+the whole container's labels, so they are intentionally two routers.
 
 ### 4. notify_push (Client Push) path
 
-The high-performance push daemon runs inside the Nextcloud container on port
-7867. Its public path is `https://<domain>/cloud/push`, stripped to `/` before
-reaching the daemon. This requires a dedicated Traefik router+service with its
-own StripPrefix (`/cloud/push`). With two services on one container (port 80 and
-port 7867), Traefik v3 requires **explicit `traefik.http.routers.*.service`
-labels** on all routers — without them Traefik refuses to auto-link any router
-and silently drops them all.
+The push daemon runs in the Nextcloud container on port 7867, published at
+`https://<domain>/cloud/push` (stripped to `/`). With two services on one
+container (port 80 and 7867), Traefik v3 requires explicit
+`traefik.http.routers.*.service` labels on all routers, or it drops them all.
 
 ### What to check after a Nextcloud major upgrade
 
-If things break after bumping the image tag, go through this list:
-
-1. Check `OVERWRITEWEBROOT` is still respected (some major versions change how
-   the env var is read — verify links in the UI include `/cloud`).
-2. Check `/ocm-provider` and `/ocs-provider` still resolve at the domain root.
-3. Check `/cloud/push` returns HTTP 200 (`curl -I https://<domain>/cloud/push`).
-4. If the admin panel shows new warnings, run:
+1. `OVERWRITEWEBROOT` still respected (UI links include `/cloud`).
+2. `/ocm-provider` and `/ocs-provider` still resolve at the domain root.
+3. `/cloud/push` returns 200 (`curl -I https://<domain>/cloud/push`).
+4. If the admin panel shows new warnings:
    ```sh
    podman exec --user www-data nextcloud php /var/www/html/occ maintenance:repair --include-expensive
    ```
@@ -728,25 +677,27 @@ If things break after bumping the image tag, go through this list:
 ## Repository structure
 
 ```
-deploy.sh                  # Convenience wrapper around ansible-playbook
+deploy.sh                  # Wrapper around ansible-playbook (auto-detects creds)
 ansible/
-  ansible.cfg              # Ansible configuration (sets inventory = inventory.yml)
-  inventory.yml            # Host list — add your servers here
+  ansible.cfg              # Ansible config (sets inventory = inventory.yml)
+  inventory.yml            # Host list — every host must be listed here
   site.yml                 # Master playbook (runs all roles in order)
   group_vars/all/
-    vars.yml               # Image tags and shared non-secret config
-    vault.yml.example      # Template for secrets (copy → vault.yml, encrypt)
-    vault.yml              # ENCRYPTED secrets - never commit unencrypted
+    vars.yml               # Image tags + shared non-secret config
+    vault.yml.example      # Global vault template (only acme_email)
+    vault.yml              # ENCRYPTED global secret — never commit unencrypted
   host_vars/
-    example-server.yml     # Template for per-server config (copy and rename)
-    <your-server>.yml      # One file per managed server
+    example-server.yml     # Template for a host's vars.yml
+    <hostname>/            # One directory per host:
+      vars.yml             #   plain per-host config (IP, domain, SSH key)
+      vault.yml.example    #   per-host secret template (fully commented)
+      vault.yml            #   ENCRYPTED per-host secrets — never commit
   roles/
     traefik/tasks/main.yml            # Reverse proxy + TLS
-    static_site/tasks/main.yml        # Landing page (nginx)
-    static_site/files/site/index.html # Landing page HTML - edit freely
+    static_site/...                   # Landing page (nginx)
     nextcloud/tasks/main.yml          # Nextcloud + MariaDB + Valkey
     forgejo/tasks/main.yml            # Forgejo + MariaDB
-    collabora/tasks/main.yml          # Collabora Online document server
+    collabora/tasks/main.yml          # Collabora document server (fallback)
     eurooffice/tasks/main.yml         # EuroOffice document server (primary)
     authelia/tasks/main.yml           # SSO/OIDC provider (on by default)
 README.md                  # This file
