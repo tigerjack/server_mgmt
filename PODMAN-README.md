@@ -63,6 +63,18 @@ After this the playbook runs with `--ask-become-pass` (which `deploy.sh` adds
 automatically since no `ansible_become_pass` is wired up), and you keep a
 password on sudo.
 
+Make the swap stick across upgrades — otherwise `unattended-upgrades` or a
+release upgrade can pull sudo-rs back in as the default and reintroduce the
+timeout:
+
+```sh
+apt-mark hold sudo         # pin classic sudo; prevents sudo-rs from displacing it
+apt-mark showhold          # confirm "sudo" is listed
+```
+
+Reverse later with `apt-mark unhold sudo` if you ever want to track the distro
+default again.
+
 > **Alternative: passwordless sudo.** If you would rather not touch the sudo
 > implementation, granting the deploy user passwordless sudo also works — there
 > is no prompt to detect either way:
@@ -173,7 +185,7 @@ loginctl show-user containers | grep Linger   # should print Linger=yes
 ## 5. Sanity-check cgroups
 
 Both kernels here default to cgroups v2 with the systemd driver, but
-confirm it. Note that this command should be executed from a path accessible to containers, so first of all go with `cd tmp`:
+confirm it. Note that this command should be executed from a path accessible to containers, so first of all go with `cd /tmp`:
 
 ```sh
 sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
@@ -231,7 +243,7 @@ into the proxy container.
 At this point each host has rootless Podman, a `containers` user with
 lingering enabled, a working subuid/subgid range, and the API socket
 reachable - everything the playbook from here on assumes already exists.
-Run `ansible-playbook site.yml` next.
+Run `./deploy.sh` next (or `./deploy.sh --limit <host>` for a single host).
 
 ## Troubleshooting
 
@@ -243,6 +255,10 @@ Run `ansible-playbook site.yml` next.
   insufficient UIDs or GIDs available"**: the subuid/subgid range from
   step 3 is missing or too small. Re-check `grep containers /etc/subuid
   /etc/subgid`.
+- **"Timeout waiting for privilege escalation prompt"** during the ansible
+  run: the host is running `sudo-rs`, which Ansible can't drive. Check with
+  `sudo --version` and fix per step 0 (swap to classic sudo, or passwordless
+  sudo).
 - **Containers don't survive a reboot**: almost always means lingering
   (step 4) didn't actually get enabled, or got reset - it's tied to the
   user account and survives package upgrades, but double-check with
