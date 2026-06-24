@@ -24,13 +24,15 @@ else
     vault_args=(--ask-vault-pass)
 fi
 
-# If vault_become_pass is in the vault (and wired to ansible_become_pass),
-# ansible handles sudo automatically — no --ask-become-pass needed.
-# If it is NOT set, we need the interactive prompt.
-# Detect by checking whether ansible_become_pass is defined anywhere in vars.
+# If ansible_become_pass is actually wired up (an uncommented assignment that
+# points at vault_become_pass), ansible handles sudo automatically — no
+# --ask-become-pass needed. Otherwise we must prompt.
+# Match a real assignment only (start of line, optional indent, then the key
+# and a colon) so a commented-out example does NOT count as "wired up".
 become_args=()
-if ! grep -r 'ansible_become_pass' "$REPO_ROOT/ansible/group_vars" \
-       "$REPO_ROOT/ansible/host_vars" &>/dev/null 2>&1; then
+if ! grep -rEq '^[[:space:]]*ansible_become_pass[[:space:]]*:' \
+       "$REPO_ROOT/ansible/group_vars" \
+       "$REPO_ROOT/ansible/host_vars" 2>/dev/null; then
     become_args=(--ask-become-pass)
 fi
 
