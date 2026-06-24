@@ -103,36 +103,36 @@ which has a short support window (~3 months per non-LTS release):
 
 ## Running the playbook
 
-Ansible SSHes in as your personal user and uses `sudo` for privileged tasks.
-You need to supply both your vault password and your sudo password:
+Use the wrapper script from the repo root:
 
 ```sh
-cd ansible
-
-# Standard run - prompts for vault password then sudo password:
-ansible-playbook site.yml --ask-vault-pass --ask-become-pass
-
-# With a vault password file (only sudo prompt remains):
-ansible-playbook site.yml --vault-password-file ../.vault_pass --ask-become-pass
-
-# Limit to a single host:
-ansible-playbook site.yml --vault-password-file ../.vault_pass --ask-become-pass --limit spqr-project
-
-# Limit to a single role (e.g. after updating Forgejo config):
-ansible-playbook site.yml --vault-password-file ../.vault_pass --ask-become-pass --tags forgejo
+./deploy.sh                        # full run
+./deploy.sh --limit spqr-project   # single host
+./deploy.sh --tags forgejo         # single role
 ```
 
-If you want to avoid typing the sudo password every run, add it to the vault:
+The script auto-detects credentials:
 
-```sh
-# In vault.yml, add:
-vault_become_pass: "your_sudo_password"
+- **Vault password** — if `.vault_pass` exists next to `deploy.sh`, it is used
+  automatically (no interactive prompt). Otherwise you are asked for it.
+  Save the vault password there once:
+  ```sh
+  echo "your-vault-password" > .vault_pass
+  chmod 600 .vault_pass   # already in .gitignore
+  ```
+- **Sudo password** — if `ansible_become_pass` is wired up in `group_vars`
+  (via `vault_become_pass` in the vault), sudo is handled automatically.
+  Otherwise you are prompted. To stop being asked, add to the vault and wire it:
+  ```sh
+  # host_vars/<host>/vault.yml:
+  vault_become_pass: "your_sudo_password"
 
-# In group_vars/all/vars.yml, add:
-ansible_become_pass: "{{ vault_become_pass }}"
-```
+  # group_vars/all/vars.yml:
+  ansible_become_pass: "{{ vault_become_pass }}"
+  ```
 
-Then you only need `--vault-password-file` and no `--ask-become-pass`.
+Any extra flags are forwarded to `ansible-playbook`, so `--limit`, `--tags`,
+`--check`, etc. all work as usual.
 
 ---
 
@@ -173,12 +173,26 @@ reconstructs `/git` URLs itself via `ROOT_URL` in `app.ini`.
 SSH git access is on port 2222 (TCP-forwarded through Traefik):
 
 ```sh
-# Clone explicitly with port:
+# Clone explicitly with the port:
 git clone ssh://git@example.com:2222/owner/repo.git
+```
 
-# Or add to ~/.ssh/config to use plain git@ remotes:
+Add a `~/.ssh/config` entry on your local machine to avoid specifying the port
+every time and to select the right key:
+
+```
 Host example.com
+    User git
     Port 2222
+    IdentityFile ~/.ssh/id_ed25519   # the key registered in your Forgejo profile
+```
+
+With that block in place you can use the short form everywhere — clone, push,
+pull, and `git remote add` — without the explicit `ssh://git@…:2222` prefix:
+
+```sh
+git clone example.com:owner/repo.git
+git remote add origin example.com:owner/repo.git
 ```
 
 ### `authelia`
