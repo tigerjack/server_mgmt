@@ -156,17 +156,28 @@ vault_oidc_nextcloud_client_secret_hash: ""
 # Fields:
 #   username:      login name (must be unique, lowercase recommended)
 #   displayname:   shown in Authelia's portal UI
-#   email:         where password-reset links are sent
-#   password_hash: argon2 hash of the user's password (see below)
+#   email:         where password-reset links are sent (MUST be correct — the
+#                  password-reset link goes here; wrong email = user is locked out)
+#   password_hash: argon2 hash of the user's initial password (see below)
 #   groups:        list of groups; "admins" grants admin access in Nextcloud
 #
-# Generate the password_hash with:
-#   podman run --rm docker.io/authelia/authelia:4.39 \
-#     authelia crypto hash generate argon2 --password 'TheirPassword'
+# IMPORTANT: the password field must be a valid argon2/bcrypt hash. An empty
+# string or a non-hash value causes Authelia to fail to parse users_database.yml
+# and refuse to start, locking everyone out. Always set a real hash, even if it
+# is only a throwaway.
 #
-# During a testing phase, prefer the self-reset flow: set an initial hash here,
-# let the user reset their password via the /auth portal, then harvest the new
-# hash from /etc/authelia/users_database.yml and update this vault entry.
+# Recommended first-login flow:
+# 1. Generate a hash for a throwaway password (share it out-of-band with the user):
+#      podman run --rm docker.io/authelia/authelia:4.39 \
+#        authelia crypto hash generate argon2 --password 'ChangeMe123!'
+# 2. Put that hash here, deploy.
+# 3. The user logs in with the throwaway password, then either:
+#    a. Uses "Forgot my password" at https://<domain>/auth (requires SMTP) to
+#       set their own password — they never need to share it with you.
+#    b. Or you harvest the new hash from /etc/authelia/users_database.yml after
+#       they reset it via the portal, and update this vault entry.
+# 4. For SMTP-less hosts: the user must change their password through the portal
+#    UI (Settings → Change password) while still logged in with the throwaway.
 authelia_users:
   - username: "sperriello"
     displayname: "Stefano Perriello"
