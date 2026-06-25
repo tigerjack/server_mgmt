@@ -1,5 +1,5 @@
 ---
-# HOST-SPECIFIC encrypted vault for spqr-project.
+# HOST-SPECIFIC encrypted vault for quouskwe-project.
 #
 # Copy to vault.yml in this same directory and encrypt it:
 #   cp vault.yml.example vault.yml
@@ -7,8 +7,8 @@
 # Edit later with:
 #   ansible-vault edit vault.yml
 #
-# Everything here is loaded ONLY for the spqr-project host. Each instance
-# (quouskwe-project, ...) gets its own host_vars/<host>/vault.yml with its
+# Everything here is loaded ONLY for the quouskwe-project host. Each instance
+# (spqr-project, ...) gets its own host_vars/<host>/vault.yml with its
 # own users and secrets — they never see each other's values.
 #
 # vault.yml and .vault_pass are gitignored and must NEVER be committed.
@@ -43,7 +43,7 @@ vault_forgejo_db_password:       ""
 # Generate the password with: openssl rand -base64 32
 vault_forgejo_admin_user:        "forgejo-admin"
 vault_forgejo_admin_password:    ""
-vault_forgejo_admin_email:       "forgejo-admin@spqr-project.deib.polimi.it"
+vault_forgejo_admin_email:       "forgejo-admin@quouskwe-project.deib.polimi.it"
 
 # ---------------------------------------------------------------------------
 # Nextcloud
