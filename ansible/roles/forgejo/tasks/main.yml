@@ -262,16 +262,25 @@
   become_user: "{{ containers_user }}"
   no_log: true
   ansible.builtin.command:
-    cmd: >
-      podman exec --user git forgejo forgejo admin auth add-oauth
-      --name authelia
-      --provider openidConnect
-      --key forgejo
-      --secret {{ vault_oidc_forgejo_client_secret }}
-      --auto-discover-url https://{{ domain }}{{ authelia_subpath }}/.well-known/openid-configuration
-      --scopes "openid profile email groups"
-      --group-claim-name groups
-      --admin-group "{{ forgejo_oidc_admin_group }}"
+    argv: >-
+      {{
+        [
+          'podman', 'exec', '--user', 'git', 'forgejo',
+          'forgejo', 'admin', 'auth', 'add-oauth',
+          '--name', 'authelia',
+          '--provider', 'openidConnect',
+          '--key', 'forgejo',
+          '--secret', vault_oidc_forgejo_client_secret,
+          '--auto-discover-url', 'https://' ~ domain ~ authelia_subpath ~ '/.well-known/openid-configuration',
+          '--scopes', 'openid profile email groups',
+          '--group-claim-name', 'groups',
+          '--admin-group', forgejo_oidc_admin_group
+        ]
+        + ([] if (forgejo_oidc_group_team_map | default({}) | length == 0) else
+           ['--group-team-map', forgejo_oidc_group_team_map | to_json])
+        + ([] if (forgejo_oidc_group_team_map | default({}) | length == 0) else
+           (['--group-team-map-removal'] if forgejo_oidc_group_team_map_removal | default(true) else []))
+      }}
   changed_when: true
   when:
     - enable_authelia | default(false)
@@ -285,15 +294,24 @@
     forgejo_authelia_auth_id: "{{ forgejo_auth_list.stdout | default('') | regex_search('(?m)^\\s*(\\d+)\\s+authelia\\b', '\\1') | first | default('') }}"
   when: enable_authelia | default(false)
 
-- name: Enforce Authelia group → role mapping on the Forgejo auth source
+- name: Enforce Authelia group → role and team mapping on the Forgejo auth source
   become: true
   become_user: "{{ containers_user }}"
   ansible.builtin.command:
-    cmd: >
-      podman exec --user git forgejo forgejo admin auth update-oauth
-      --id {{ forgejo_authelia_auth_id }}
-      --group-claim-name groups
-      --admin-group "{{ forgejo_oidc_admin_group }}"
+    argv: >-
+      {{
+        [
+          'podman', 'exec', '--user', 'git', 'forgejo',
+          'forgejo', 'admin', 'auth', 'update-oauth',
+          '--id', forgejo_authelia_auth_id,
+          '--group-claim-name', 'groups',
+          '--admin-group', forgejo_oidc_admin_group
+        ]
+        + ([] if (forgejo_oidc_group_team_map | default({}) | length == 0) else
+           ['--group-team-map', forgejo_oidc_group_team_map | to_json])
+        + ([] if (forgejo_oidc_group_team_map | default({}) | length == 0) else
+           (['--group-team-map-removal'] if forgejo_oidc_group_team_map_removal | default(true) else []))
+      }}
   changed_when: false
   when:
     - enable_authelia | default(false)

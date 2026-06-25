@@ -378,6 +378,33 @@ Notes:
 - Changes take effect on the user's **next login** (the role is read from the
   token at login time), not retroactively for an active session.
 
+#### Forgejo group → org/team mapping
+
+For finer access control you can map Authelia groups to Forgejo org teams.
+Set `forgejo_oidc_group_team_map` in `group_vars/all/vars.yml` (or override it
+per host in `host_vars/<host>/vars.yml`):
+
+```yaml
+forgejo_oidc_group_team_map:
+  polimi:
+    polimi: [Members]
+  developers:
+    polimi: [Developers]
+```
+
+With this example a user whose Authelia groups include `polimi` is added to the
+`Members` team of the `polimi` org; a user with `developers` is added to the
+`Developers` team. A user with both groups is added to both teams.
+
+**Removal on leave is on by default** (`forgejo_oidc_group_team_map_removal:
+true`): if the group is removed from the user's vault entry and the playbook is
+re-run, the user is dropped from the corresponding team on their next login.
+
+**Orgs and teams must be created in the Forgejo UI first.** The deploy only
+manages membership — it does not create orgs or teams. Go to
+`https://<domain>/git/org/create` to create an org, then add teams from its
+Settings page before adding the mapping here.
+
 #### Adding a user without running the playbook
 
 To grant access immediately, edit the live file on the server. The file backend
