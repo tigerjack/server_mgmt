@@ -339,7 +339,7 @@ authelia_users:
     displayname: "Alice Rossi"
     email: "alice@polimi.it"
     password_hash: "$argon2id$v=19$..."
-    groups: [users]            # "admins" grants admin in Nextcloud
+    groups: [users]            # see "Groups and roles" below
 ```
 
 `password_hash` is required and is the source of truth — a user with no hash
@@ -352,6 +352,31 @@ podman run --rm docker.io/authelia/authelia:4.39 \
 
 Re-run the playbook after any change. To revoke access, set `disabled: true` or
 remove the entry.
+
+### Groups and roles
+
+The `groups` list on each user is sent to Forgejo and Nextcloud as an OIDC
+`groups` claim, and the apps turn it into permissions:
+
+| Authelia group | Effect | Where it's configured |
+| --- | --- | --- |
+| `admins` | Grants the **Forgejo admin** role on next OIDC login | `forgejo_oidc_admin_group` in `group_vars/all/vars.yml` |
+| *any group* | Synced into Nextcloud as a like-named group (quotas, group folders, share policies) | `nextcloud_oidc_group_provisioning` in `group_vars/all/vars.yml` |
+
+Notes:
+
+- **Group names are free-form.** Add your own (e.g. `developers`, `staff`) to a
+  user's `groups` list and reference them in Forgejo team maps or Nextcloud
+  group settings. A user with no groups defaults to `users`.
+- **Nextcloud admin is intentionally NOT group-driven.** Admin rights come from
+  the built-in local `admin` account (set in the vault), not from any Authelia
+  group — keeping a break-glass admin that works even if SSO is down.
+- **To change which group grants Forgejo admin**, edit `forgejo_oidc_admin_group`
+  and re-run the Forgejo role (`./deploy.sh --limit <host> --tags forgejo`). The
+  role re-applies the mapping to the existing OIDC source; you don't need to
+  recreate it.
+- Changes take effect on the user's **next login** (the role is read from the
+  token at login time), not retroactively for an active session.
 
 #### Adding a user without running the playbook
 

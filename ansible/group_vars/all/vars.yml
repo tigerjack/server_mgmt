@@ -56,3 +56,20 @@ smtp_from: "noreply@{{ domain }}"
 
 # Authelia is served under this path on the main domain (no subdomain needed).
 authelia_subpath: "/auth"
+
+# ---------------------------------------------------------------------------
+# OIDC group → role mapping
+# ---------------------------------------------------------------------------
+# Authelia issues a `groups` claim (the list under each user in authelia_users)
+# to Forgejo and Nextcloud. These settings decide how the apps react to it.
+#
+# Forgejo: members of this Authelia group are made Forgejo admins on login.
+# Other groups can be mapped to org teams manually via `forgejo admin auth
+# update-oauth --group-team-map` if you need finer control.
+forgejo_oidc_admin_group: "admins"
+#
+# Nextcloud: when true, Authelia groups are synced into Nextcloud groups on
+# login (useful for quotas, group folders, and share policies). Note: this does
+# NOT grant Nextcloud admin — admin rights come from the built-in `admin` group,
+# which is kept local on purpose. Use the local admin account for that.
+nextcloud_oidc_group_provisioning: true

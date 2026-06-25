@@ -159,7 +159,19 @@ vault_oidc_nextcloud_client_secret_hash: ""
 #   email:         where password-reset links are sent (MUST be correct — the
 #                  password-reset link goes here; wrong email = user is locked out)
 #   password_hash: argon2 hash of the user's initial password (see below)
-#   groups:        list of groups; "admins" grants admin access in Nextcloud
+#   groups:        list of groups controlling app permissions (see below)
+#
+# Groups → roles (how the `groups` list maps to app permissions):
+#   admins   → Forgejo admin. Set by forgejo_oidc_admin_group in
+#              group_vars/all/vars.yml; members get the Forgejo admin role on
+#              their next OIDC login.
+#   <any>    → synced into Nextcloud as a like-named group (for quotas, group
+#              folders, and share policies) when nextcloud_oidc_group_provisioning
+#              is true. This does NOT grant Nextcloud admin — admin stays with the
+#              local Nextcloud admin account on purpose.
+# Group names are free-form. Add your own (e.g. developers, staff) and wire them
+# up in Forgejo team maps or Nextcloud group settings as needed. A user with no
+# groups defaults to the "users" group.
 #
 # IMPORTANT: the password field must be a valid argon2/bcrypt hash. An empty
 # string or a non-hash value causes Authelia to fail to parse users_database.yml

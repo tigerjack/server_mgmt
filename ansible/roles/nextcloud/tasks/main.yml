@@ -423,6 +423,8 @@
       --mapping-uid="preferred_username"
       --mapping-email="email"
       --mapping-display-name="name"
+      --mapping-groups="groups"
+      --group-provisioning="{{ '1' if nextcloud_oidc_group_provisioning | default(true) else '0' }}"
   changed_when: true
   when: enable_authelia | default(false)
 
