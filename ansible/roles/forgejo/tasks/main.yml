@@ -291,7 +291,7 @@
 # forgejo_oidc_admin_group take effect without manually recreating the source.
 - name: Find the Authelia auth source ID
   ansible.builtin.set_fact:
-    forgejo_authelia_auth_id: "{{ forgejo_auth_list.stdout | default('') | regex_search('(?m)^\\s*(\\d+)\\s+authelia\\b', '\\1') | first | default('') }}"
+    forgejo_authelia_auth_id: "{{ (forgejo_auth_list.stdout | default('') | regex_findall('(?m)^\\s*(\\d+)\\s+authelia\\b') + ['']) | first }}"
   when: enable_authelia | default(false)
 
 - name: Enforce Authelia group → role and team mapping on the Forgejo auth source
