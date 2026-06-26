@@ -250,13 +250,20 @@
   become: true
   become_user: "{{ containers_user }}"
   no_log: true
+  # Pass the admin password via env var so it never appears in the process
+  # table. 'environment:' injects it into this Ansible task's env only;
+  # podman exec --env FORGEJO_ADMIN_PW (name only) forwards it into the
+  # container; sh -c expands it inside the exec'd shell.
+  environment:
+    FORGEJO_ADMIN_PW: "{{ vault_forgejo_admin_password }}"
   ansible.builtin.command:
     cmd: >
-      podman exec --user git forgejo forgejo admin user create
-      --username {{ vault_forgejo_admin_user }}
-      --password {{ vault_forgejo_admin_password }}
-      --email {{ vault_forgejo_admin_email }}
-      --admin --must-change-password=false
+      podman exec --env FORGEJO_ADMIN_PW --user git forgejo
+      sh -c 'forgejo admin user create
+      --username "{{ vault_forgejo_admin_user }}"
+      --email "{{ vault_forgejo_admin_email }}"
+      --password "$FORGEJO_ADMIN_PW"
+      --admin --must-change-password=false'
   register: forgejo_admin_create
   # Retry to give MariaDB time to finish starting up
   retries: 10
