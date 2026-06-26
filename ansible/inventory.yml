@@ -1,9 +1,10 @@
 ---
-# List your servers here. Each hostname must match a file in host_vars/
-# (e.g. "spqr-project" → host_vars/spqr-project.yml).
+# List your servers here. Each hostname must match a directory in host_vars/
+# (e.g. "spqr-project" → host_vars/spqr-project/).
 #
-# Add or remove hosts as needed. The variables (IP, domain, SSH key)
-# live in host_vars/<hostname>.yml, not here.
+# Add or remove hosts as needed. The variables (IP, domain, SSH key) live in
+# host_vars/<hostname>/vars.yml (with secrets in host_vars/<hostname>/vault.yml),
+# not here.
 
 all:
   hosts:
