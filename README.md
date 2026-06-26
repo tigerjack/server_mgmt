@@ -546,8 +546,13 @@ Unauthenticated requests are redirected to the Authelia portal first.
 - **Forgejo auth-source idempotency.** The role adds the `authelia` OIDC source
   only if absent. If you change the client secret later, remove and re-add:
   `forgejo admin auth delete-oauth --id <id>`, then re-run the playbook.
-- **Nextcloud groups.** `user_oidc` maps username, email, and name from the
-  token but ignores Authelia groups. Manage Nextcloud group membership manually.
+- **Nextcloud groups.** When `nextcloud_oidc_group_provisioning` is true (the
+  default), `user_oidc` syncs the Authelia `groups` claim into Nextcloud groups
+  on each login — see [Groups and roles](#groups-and-roles). Provisioned groups
+  appear with hashed internal IDs in `occ group:list` but show their real names
+  in the UI. This does **not** grant Nextcloud admin: admin stays with the local
+  `admin` account on purpose. Set `nextcloud_oidc_group_provisioning: false` to
+  manage Nextcloud group membership manually instead.
 
 ---
 

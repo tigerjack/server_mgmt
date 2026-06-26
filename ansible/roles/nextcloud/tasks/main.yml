@@ -235,6 +235,26 @@
   until: nc_db_ping.rc == 0
   changed_when: false
 
+# Same as the forgejo ALTER USER pattern: MariaDB only applies MARIADB_USER
+# credentials on first init of an empty data dir. Syncing the password here
+# ensures vault changes and existing volumes stay in sync on every deploy.
+- name: Sync nextcloud DB user password with vault (idempotent ALTER USER)
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true
+  ansible.builtin.command:
+    cmd: >
+      podman exec db_nextcloud
+      mariadb -uroot -p{{ vault_nextcloud_db_root_password }}
+      -e "ALTER USER '{{ vault_nextcloud_db_user }}'@'%'
+          IDENTIFIED BY '{{ vault_nextcloud_db_password }}';
+          FLUSH PRIVILEGES;"
+  register: nextcloud_db_pw_sync
+  retries: 10
+  delay: 6
+  until: nextcloud_db_pw_sync.rc == 0
+  changed_when: false
+
 - name: Start nextcloud
   become: true
   become_user: "{{ containers_user }}"
@@ -304,19 +324,30 @@
   changed_when: true
   failed_when: false
 
-- name: Configure EuroOffice document server connection (primary editor)
+- name: Configure EuroOffice document server URL
   become: true
   become_user: "{{ containers_user }}"
   ansible.builtin.command:
     cmd: >
       podman exec --user www-data nextcloud php /var/www/html/occ
-      config:app:set eurooffice {{ item.key }} --value="{{ item.value }}"
+      config:app:set eurooffice DocumentServerUrl --value="https://{{ domain }}/eurooffice-ds/"
   changed_when: true
-  loop:
-    - {key: DocumentServerUrl, value: "https://{{ domain }}/eurooffice-ds/"}
-    - {key: jwt_secret,        value: "{{ vault_eurooffice_jwt_secret }}"}
-  loop_control:
-    label: "eurooffice.{{ item.key }}"
+
+- name: Configure EuroOffice JWT secret
+  become: true
+  become_user: "{{ containers_user }}"
+  # Pass the secret via env var so it never appears in the process table.
+  # The Ansible 'environment:' key sets it in this process only; podman exec
+  # --env EUROOFFICE_JWT_SECRET (name only, no =value) forwards it into the
+  # container; sh -c then expands it inside the exec'd shell.
+  no_log: true
+  environment:
+    EUROOFFICE_JWT_SECRET: "{{ vault_eurooffice_jwt_secret }}"
+  ansible.builtin.command:
+    cmd: >
+      podman exec --env EUROOFFICE_JWT_SECRET --user www-data nextcloud
+      sh -c 'php /var/www/html/occ config:app:set eurooffice jwt_secret --value="$EUROOFFICE_JWT_SECRET"'
+  changed_when: true
 
 - name: Configure Collabora connection (secondary editor)
   become: true

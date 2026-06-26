@@ -36,6 +36,16 @@
       traefik.http.routers.collabora-browser.tls: "true"
       traefik.http.routers.collabora-browser.tls.certresolver: "letsencrypt"
       traefik.http.routers.collabora-browser.service: "collabora-svc"
+      # Admin console — higher priority so this rule wins over the broad /browser
+      # match above. Requires an Authelia session; WOPI/document endpoints are
+      # unaffected because they live under /cool and /hosting, not /browser/dist/admin.
+      traefik.http.routers.collabora-admin.entrypoints: "websecure"
+      traefik.http.routers.collabora-admin.rule: "Host(`{{ domain }}`) && PathPrefix(`/browser/dist/admin`)"
+      traefik.http.routers.collabora-admin.priority: "10"
+      traefik.http.routers.collabora-admin.tls: "true"
+      traefik.http.routers.collabora-admin.tls.certresolver: "letsencrypt"
+      traefik.http.routers.collabora-admin.service: "collabora-svc"
+      traefik.http.routers.collabora-admin.middlewares: "authelia@docker"
       traefik.http.routers.collabora-hosting.entrypoints: "websecure"
       traefik.http.routers.collabora-hosting.rule: "Host(`{{ domain }}`) && PathPrefix(`/hosting`)"
       traefik.http.routers.collabora-hosting.tls: "true"

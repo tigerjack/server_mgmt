@@ -178,18 +178,47 @@
   loop_control:
     label: "{{ item.0 }}:{{ item.1 }}"
 
-- name: Start forgejo containers at boot (db first)
+- name: Start db_forgejo at boot
   become: true
   become_user: "{{ containers_user }}"
   ansible.builtin.systemd:
     scope: user
-    name: "container-{{ item }}.service"
+    name: container-db_forgejo.service
     enabled: true
     state: started
     daemon_reload: true
-  loop:
-    - db_forgejo
-    - forgejo
+
+# MariaDB only sets MARIADB_USER credentials on first init of an empty data
+# dir. On subsequent deploys the existing volume keeps the old password,
+# causing Access denied when Forgejo tries to connect. This task syncs the
+# password unconditionally so it always matches the vault, regardless of
+# whether the volume is fresh or pre-existing.
+- name: Sync forgejo DB user password with vault (idempotent ALTER USER)
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true
+  ansible.builtin.command:
+    cmd: >
+      podman exec db_forgejo
+      mariadb -uroot -p{{ vault_forgejo_db_root_password }}
+      -e "ALTER USER '{{ vault_forgejo_db_user }}'@'%'
+          IDENTIFIED BY '{{ vault_forgejo_db_password }}';
+          FLUSH PRIVILEGES;"
+  register: forgejo_db_pw_sync
+  retries: 10
+  delay: 6
+  until: forgejo_db_pw_sync.rc == 0
+  changed_when: false
+
+- name: Start forgejo at boot
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-forgejo.service
+    enabled: true
+    state: started
+    daemon_reload: true
 
 # Guardrail for the anonymous-volume data-loss bug: forgejo's persistent
 # state lives under /data, so that path MUST be backed by the forgejo-data
@@ -221,13 +250,20 @@
   become: true
   become_user: "{{ containers_user }}"
   no_log: true
+  # Pass the admin password via env var so it never appears in the process
+  # table. 'environment:' injects it into this Ansible task's env only;
+  # podman exec --env FORGEJO_ADMIN_PW (name only) forwards it into the
+  # container; sh -c expands it inside the exec'd shell.
+  environment:
+    FORGEJO_ADMIN_PW: "{{ vault_forgejo_admin_password }}"
   ansible.builtin.command:
     cmd: >
-      podman exec --user git forgejo forgejo admin user create
-      --username {{ vault_forgejo_admin_user }}
-      --password {{ vault_forgejo_admin_password }}
-      --email {{ vault_forgejo_admin_email }}
-      --admin --must-change-password=false
+      podman exec --env FORGEJO_ADMIN_PW --user git forgejo
+      sh -c 'forgejo admin user create
+      --username "{{ vault_forgejo_admin_user }}"
+      --email "{{ vault_forgejo_admin_email }}"
+      --password "$FORGEJO_ADMIN_PW"
+      --admin --must-change-password=false'
   register: forgejo_admin_create
   # Retry to give MariaDB time to finish starting up
   retries: 10

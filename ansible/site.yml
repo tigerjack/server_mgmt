@@ -67,3 +67,7 @@
         scope: user
         name: container-traefik.service
         state: restarted
+      # Best-effort re-discovery: on a single-role run (e.g. --tags forgejo)
+      # against a host where traefik was never deployed, this would otherwise
+      # hard-fail. Don't let the convenience restart break the run.
+      failed_when: false

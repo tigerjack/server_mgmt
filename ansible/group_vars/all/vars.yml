@@ -10,7 +10,7 @@ ansible_become_method: sudo
 containers_user: containers
 
 # Directory name inside roles/static_site/files/ to deploy as the landing page.
-# Override per host in host_vars/<hostname>.yml to give each server its own site.
+# Override per host in host_vars/<hostname>/vars.yml to give each server its own site.
 static_site_dir: "site"
 
 # Subnet for the shared edge network (traefik + app front ends).
