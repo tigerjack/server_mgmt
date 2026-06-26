@@ -100,7 +100,8 @@ identity_providers:
         client_secret: "{{ vault_oidc_forgejo_client_secret_hash }}"
         public: false
         authorization_policy: one_factor
-        require_pkce: false
+        require_pkce: true
+        pkce_challenge_method: S256
         redirect_uris:
           - "https://{{ domain }}/git/user/oauth2/authelia/callback"
         scopes:
@@ -121,7 +122,8 @@ identity_providers:
         client_secret: "{{ vault_oidc_nextcloud_client_secret_hash }}"
         public: false
         authorization_policy: one_factor
-        require_pkce: false
+        require_pkce: true
+        pkce_challenge_method: S256
         redirect_uris:
           - "https://{{ domain }}/cloud/apps/user_oidc/code"
         scopes:
