@@ -235,6 +235,22 @@
   until: nc_db_ping.rc == 0
   changed_when: false
 
+# Same as the forgejo ALTER USER pattern: MariaDB only applies MARIADB_USER
+# credentials on first init of an empty data dir. Syncing the password here
+# ensures vault changes and existing volumes stay in sync on every deploy.
+- name: Sync nextcloud DB user password with vault (idempotent ALTER USER)
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true
+  ansible.builtin.command:
+    cmd: >
+      podman exec db_nextcloud
+      mariadb -uroot -p{{ vault_nextcloud_db_root_password }}
+      -e "ALTER USER '{{ vault_nextcloud_db_user }}'@'%'
+          IDENTIFIED BY '{{ vault_nextcloud_db_password }}';
+          FLUSH PRIVILEGES;"
+  changed_when: false
+
 - name: Start nextcloud
   become: true
   become_user: "{{ containers_user }}"
