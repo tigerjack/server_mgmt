@@ -249,6 +249,10 @@
       -e "ALTER USER '{{ vault_nextcloud_db_user }}'@'%'
           IDENTIFIED BY '{{ vault_nextcloud_db_password }}';
           FLUSH PRIVILEGES;"
+  register: nextcloud_db_pw_sync
+  retries: 10
+  delay: 6
+  until: nextcloud_db_pw_sync.rc == 0
   changed_when: false
 
 - name: Start nextcloud
@@ -320,22 +324,30 @@
   changed_when: true
   failed_when: false
 
-- name: Configure EuroOffice document server connection (primary editor)
+- name: Configure EuroOffice document server URL
   become: true
   become_user: "{{ containers_user }}"
-  # no_log: the loop sets the EuroOffice JWT secret (item.value) on the CLI;
-  # without this it would be echoed into Ansible's task output on a changed run.
-  no_log: true
   ansible.builtin.command:
     cmd: >
       podman exec --user www-data nextcloud php /var/www/html/occ
-      config:app:set eurooffice {{ item.key }} --value="{{ item.value }}"
+      config:app:set eurooffice DocumentServerUrl --value="https://{{ domain }}/eurooffice-ds/"
   changed_when: true
-  loop:
-    - {key: DocumentServerUrl, value: "https://{{ domain }}/eurooffice-ds/"}
-    - {key: jwt_secret,        value: "{{ vault_eurooffice_jwt_secret }}"}
-  loop_control:
-    label: "eurooffice.{{ item.key }}"
+
+- name: Configure EuroOffice JWT secret
+  become: true
+  become_user: "{{ containers_user }}"
+  # Pass the secret via env var so it never appears in the process table.
+  # The Ansible 'environment:' key sets it in this process only; podman exec
+  # --env EUROOFFICE_JWT_SECRET (name only, no =value) forwards it into the
+  # container; sh -c then expands it inside the exec'd shell.
+  no_log: true
+  environment:
+    EUROOFFICE_JWT_SECRET: "{{ vault_eurooffice_jwt_secret }}"
+  ansible.builtin.command:
+    cmd: >
+      podman exec --env EUROOFFICE_JWT_SECRET --user www-data nextcloud
+      sh -c 'php /var/www/html/occ config:app:set eurooffice jwt_secret --value="$EUROOFFICE_JWT_SECRET"'
+  changed_when: true
 
 - name: Configure Collabora connection (secondary editor)
   become: true
