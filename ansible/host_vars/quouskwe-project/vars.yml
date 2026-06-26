@@ -26,3 +26,11 @@ smtp_host: "smtp-relay.brevo.com"
 smtp_port: 587
 smtp_security: "starttls"
 smtp_from: "noreply@promethence.com"
+
+forgejo_oidc_group_team_map:
+  polimi:
+    polimi: [Members]
+  promethence:
+    promethence: [Members]
+  quouskwe:
+    quouskwe: [Members]
