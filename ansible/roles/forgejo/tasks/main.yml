@@ -257,20 +257,62 @@
   changed_when: false
   when: enable_authelia | default(false)
 
-- name: Add Authelia as a Forgejo OIDC login source
+- name: Add Authelia as a Forgejo OIDC login source (first run only)
   become: true
   become_user: "{{ containers_user }}"
   no_log: true
   ansible.builtin.command:
-    cmd: >
-      podman exec --user git forgejo forgejo admin auth add-oauth
-      --name authelia
-      --provider openidConnect
-      --key forgejo
-      --secret {{ vault_oidc_forgejo_client_secret }}
-      --auto-discover-url https://{{ domain }}{{ authelia_subpath }}/.well-known/openid-configuration
-      --scopes "openid profile email groups"
+    argv: >-
+      {{
+        [
+          'podman', 'exec', '--user', 'git', 'forgejo',
+          'forgejo', 'admin', 'auth', 'add-oauth',
+          '--name', 'authelia',
+          '--provider', 'openidConnect',
+          '--key', 'forgejo',
+          '--secret', vault_oidc_forgejo_client_secret,
+          '--auto-discover-url', 'https://' ~ domain ~ authelia_subpath ~ '/.well-known/openid-configuration',
+          '--scopes', 'openid profile email groups',
+          '--group-claim-name', 'groups',
+          '--admin-group', forgejo_oidc_admin_group
+        ]
+        + ([] if (forgejo_oidc_group_team_map | default({}) | length == 0) else
+           ['--group-team-map', forgejo_oidc_group_team_map | to_json])
+        + ([] if (forgejo_oidc_group_team_map | default({}) | length == 0) else
+           (['--group-team-map-removal'] if forgejo_oidc_group_team_map_removal | default(true) else []))
+      }}
   changed_when: true
   when:
     - enable_authelia | default(false)
     - "'authelia' not in (forgejo_auth_list.stdout | default(''))"
+
+# On every subsequent run the source already exists, so add-oauth is skipped.
+# update-oauth re-applies the group->role mapping so changes to
+# forgejo_oidc_admin_group take effect without manually recreating the source.
+- name: Find the Authelia auth source ID
+  ansible.builtin.set_fact:
+    forgejo_authelia_auth_id: "{{ (forgejo_auth_list.stdout | default('') | regex_findall('(?m)^\\s*(\\d+)\\s+authelia\\b') + ['']) | first }}"
+  when: enable_authelia | default(false)
+
+- name: Enforce Authelia group → role and team mapping on the Forgejo auth source
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    argv: >-
+      {{
+        [
+          'podman', 'exec', '--user', 'git', 'forgejo',
+          'forgejo', 'admin', 'auth', 'update-oauth',
+          '--id', forgejo_authelia_auth_id,
+          '--group-claim-name', 'groups',
+          '--admin-group', forgejo_oidc_admin_group
+        ]
+        + ([] if (forgejo_oidc_group_team_map | default({}) | length == 0) else
+           ['--group-team-map', forgejo_oidc_group_team_map | to_json])
+        + ([] if (forgejo_oidc_group_team_map | default({}) | length == 0) else
+           (['--group-team-map-removal'] if forgejo_oidc_group_team_map_removal | default(true) else []))
+      }}
+  changed_when: false
+  when:
+    - enable_authelia | default(false)
+    - forgejo_authelia_auth_id | default('') | length > 0

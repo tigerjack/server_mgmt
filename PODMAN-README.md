@@ -5,6 +5,87 @@ run. It gets a host from "has Docker" to "has a working rootless Podman with the
 `containers` user the playbook expects." It deliberately doesn't touch firewall
 rules - that's handled elsewhere.
 
+## 0. Make sudo work non-interactively for Ansible
+
+The playbook connects as your personal user (e.g. `sperriello`) and uses
+`become` (sudo) for privileged tasks. Ansible drives sudo non-interactively: it
+runs `sudo -S -p "<marker>"` and watches stderr for its own prompt marker, then
+feeds the password on stdin.
+
+Recent Ubuntu releases ship **`sudo-rs`** (the Rust rewrite of sudo) as the
+default `sudo`. `sudo-rs` does **not** drive the password prompt the way classic
+C sudo does — it doesn't honour Ansible's `-p` marker and routes authentication
+through polkit, so there's no prompt on the tty for Ansible to detect. The run
+dies with:
+
+```
+Timeout (32s) waiting for privilege escalation prompt
+```
+
+and a quick check confirms it:
+
+```sh
+sudo --version          # quouskwe prints "sudo-rs ..."; spqr prints "Sudo version 1.9.x"
+sudo -n true            # sudo-rs prints "sudo: interactive authentication is required" (polkit wording)
+```
+
+This is purely a host difference: the older host (spqr) runs classic sudo and
+works out of the box; the newer host (quouskwe) runs sudo-rs and times out. It
+has nothing to do with the `adm` group or the connection timeout — tuning those
+changes nothing.
+
+**Fix (recommended): replace sudo-rs with classic sudo.** This keeps
+password-protected sudo and lets Ansible drive the prompt normally. The `sudo`
+command on these releases is *provided by* the `sudo-rs` package, so a plain
+reinstall just gives you sudo-rs again — you have to install the classic `sudo`
+package, which **conflicts** with `sudo-rs`, so apt removes sudo-rs in the same
+transaction.
+
+Open a **root shell in a second terminal first** (`sudo -i`) so a half-finished
+swap can't lock you out, then:
+
+```sh
+# in a root session on the host:
+apt update
+apt install sudo            # apt reports it will REMOVE sudo-rs to resolve the conflict
+sudo --version             # confirm: now "Sudo version 1.9.x", not "sudo-rs ..."
+sudo -n true               # now prints "sudo: a password is required" (classic wording)
+```
+
+If apt claims `sudo` is already the newest version and refuses to swap, force the
+direction explicitly:
+
+```sh
+apt install sudo sudo-rs-  # trailing '-' removes sudo-rs in the same transaction
+```
+
+After this the playbook runs with `--ask-become-pass` (which `deploy.sh` adds
+automatically since no `ansible_become_pass` is wired up), and you keep a
+password on sudo.
+
+Make the swap stick across upgrades — otherwise `unattended-upgrades` or a
+release upgrade can pull sudo-rs back in as the default and reintroduce the
+timeout:
+
+```sh
+apt-mark hold sudo         # pin classic sudo; prevents sudo-rs from displacing it
+apt-mark showhold          # confirm "sudo" is listed
+```
+
+Reverse later with `apt-mark unhold sudo` if you ever want to track the distro
+default again.
+
+> **Alternative: passwordless sudo.** If you would rather not touch the sudo
+> implementation, granting the deploy user passwordless sudo also works — there
+> is no prompt to detect either way:
+> ```sh
+> echo 'sperriello ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/sperriello
+> chmod 440 /etc/sudoers.d/sperriello
+> visudo -c
+> ```
+> This is simpler but a broader privilege grant; prefer replacing sudo-rs if your
+> security policy requires a password on sudo.
+
 ## 1. Remove Docker
 
 Check what's actually installed first - Docker on Ubuntu shows up either
@@ -104,7 +185,7 @@ loginctl show-user containers | grep Linger   # should print Linger=yes
 ## 5. Sanity-check cgroups
 
 Both kernels here default to cgroups v2 with the systemd driver, but
-confirm it. Note that this command should be executed from a path accessible to containers, so first of all go with `cd tmp`:
+confirm it. Note that this command should be executed from a path accessible to containers, so first of all go with `cd /tmp`:
 
 ```sh
 sudo -u containers XDG_RUNTIME_DIR=/run/user/$(id -u containers) \
@@ -162,7 +243,7 @@ into the proxy container.
 At this point each host has rootless Podman, a `containers` user with
 lingering enabled, a working subuid/subgid range, and the API socket
 reachable - everything the playbook from here on assumes already exists.
-Run `ansible-playbook site.yml` next.
+Run `./deploy.sh` next (or `./deploy.sh --limit <host>` for a single host).
 
 ## Troubleshooting
 
@@ -174,6 +255,10 @@ Run `ansible-playbook site.yml` next.
   insufficient UIDs or GIDs available"**: the subuid/subgid range from
   step 3 is missing or too small. Re-check `grep containers /etc/subuid
   /etc/subgid`.
+- **"Timeout waiting for privilege escalation prompt"** during the ansible
+  run: the host is running `sudo-rs`, which Ansible can't drive. Check with
+  `sudo --version` and fix per step 0 (swap to classic sudo, or passwordless
+  sudo).
 - **Containers don't survive a reboot**: almost always means lingering
   (step 4) didn't actually get enabled, or got reset - it's tied to the
   user account and survives package upgrades, but double-check with

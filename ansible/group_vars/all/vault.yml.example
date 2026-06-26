@@ -1,96 +1,15 @@
 ---
-# Copy this file to vault.yml, fill in real values, then encrypt:
-#   ansible-vault encrypt group_vars/all/vault.yml
+# Global vault — shared across ALL hosts.
 #
-# Run playbooks with:
-#   ansible-playbook site.yml --ask-vault-pass
-#   ansible-playbook site.yml --vault-password-file .vault_pass
+# Copy to vault.yml and encrypt:
+#   cp group_vars/all/vault.yml.example group_vars/all/vault.yml
+#   ansible-vault encrypt group_vars/all/vault.yml
+# Edit later with:
+#   ansible-vault edit group_vars/all/vault.yml
+#
+# Keep this file small. Only put values here that are genuinely the same on
+# every host. Everything else belongs in host_vars/<host>/vault.yml.
 
-# Let's Encrypt registration email
+# Let's Encrypt registration email — used for expiry notifications only,
+# not exposed to any service.
 acme_email: "you@example.com"
-
-# Nextcloud database
-vault_nextcloud_db_root_password: "CHANGE_ME"
-vault_nextcloud_db_database:      "nextcloud"
-vault_nextcloud_db_user:          "nextcloud"
-vault_nextcloud_db_password:      "CHANGE_ME"
-
-# Nextcloud admin account (created on first run)
-vault_nextcloud_admin_user:     "admin"
-vault_nextcloud_admin_password: "CHANGE_ME"
-
-# Forgejo database
-vault_forgejo_db_root_password: "CHANGE_ME"
-vault_forgejo_db_database:      "forgejo"
-vault_forgejo_db_user:          "forgejo"
-vault_forgejo_db_password:      "CHANGE_ME"
-
-# Forgejo admin account (created on first run via `forgejo admin user create`)
-vault_forgejo_admin_user:     "admin"
-vault_forgejo_admin_password: "CHANGE_ME"
-vault_forgejo_admin_email:    "you@example.com"
-
-# Collabora Online admin credentials (for the /lool/adminws admin panel)
-vault_collabora_admin_user:     "admin"
-vault_collabora_admin_password: "CHANGE_ME"
-
-# EuroOffice Document Server — JWT secret shared between the container and the Nextcloud app.
-# No separate admin user/password; the docker run command only requires JWT_SECRET.
-# Generate with: openssl rand -hex 32
-vault_eurooffice_jwt_secret: "CHANGE_ME"
-
-# ===========================================================================
-# EXPERIMENTAL: SMTP + Authelia SSO. Only needed when enable_smtp /
-# enable_authelia are true. See EXPERIMENTAL-SSO-SMTP.md for how to fill these.
-# ===========================================================================
-
-# --- SMTP relay credentials ---
-# Leave blank if the university relay accepts unauthenticated mail from the
-# server's IP; otherwise set the SMTP login.
-vault_smtp_user:     ""
-vault_smtp_password: ""
-
-# --- Authelia core secrets ---  generate each with: openssl rand -hex 32
-vault_authelia_session_secret:         "CHANGE_ME"
-vault_authelia_storage_encryption_key: "CHANGE_ME"
-vault_authelia_jwt_secret:             "CHANGE_ME"
-vault_authelia_oidc_hmac_secret:       "CHANGE_ME"
-
-# --- Authelia OIDC issuer signing key (RSA private key, PEM) ---
-# Generate with:  openssl genrsa 4096
-# Paste the full PEM as a block scalar (mind the indentation).
-vault_authelia_oidc_jwks_key: |
-  -----BEGIN PRIVATE KEY-----
-  CHANGE_ME
-  -----END PRIVATE KEY-----
-
-# --- Authelia users (file backend) ---
-# Manual provisioning IS the approval gate: a user can log in only if they
-# appear in this list. To approve someone, generate a password hash:
-#   podman run --rm docker.io/authelia/authelia:4.39 \
-#     authelia crypto hash generate argon2 --password 'TheirPassword'
-# then add an entry below and re-run the playbook. To revoke, set
-# `disabled: true` or delete the entry. Keep at least one admin. `groups`
-# defaults to [users] and `displayname` defaults to the username if omitted.
-authelia_users:
-  - username: "admin"
-    displayname: "Administrator"
-    email: "you@example.com"
-    password_hash: "CHANGE_ME"      # the $argon2id$... string
-    groups: [admins]
-  # - username: "alice"
-  #   displayname: "Alice Rossi"
-  #   email: "alice@polimi.it"
-  #   password_hash: "$argon2id$v=19$..."
-  #   groups: [users]
-
-# --- OIDC client secrets ---
-# Each client needs a PLAINTEXT (handed to the app) and its pbkdf2 HASH
-# (handed to Authelia). Generate a matched pair with:
-#   podman run --rm docker.io/authelia/authelia:4.39 \
-#     authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 48
-# The tool prints "Random Password" (use as the plaintext) and "Digest" (the hash).
-vault_oidc_forgejo_client_secret:        "CHANGE_ME_PLAINTEXT"
-vault_oidc_forgejo_client_secret_hash:   "CHANGE_ME_HASH"
-vault_oidc_nextcloud_client_secret:      "CHANGE_ME_PLAINTEXT"
-vault_oidc_nextcloud_client_secret_hash: "CHANGE_ME_HASH"

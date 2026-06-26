@@ -1,0 +1,36 @@
+---
+# Example host vars. For a real server, create host_vars/<hostname>/ as a
+# directory containing vars.yml (this file) and vault.yml (encrypted secrets).
+# See host_vars/spqr-project/ for a worked example.
+
+# How Ansible reaches this host
+ansible_host: quouskwe-project.deib.polimi.it
+ansible_user: sperriello
+ansible_ssh_private_key_file: ~/.ssh/promethence_2026
+ansible_python_interpreter: /usr/bin/python3.14
+
+static_site_dir: "site-quouskwe"
+
+# Public domain pointing at this server's IP.
+# Used by Traefik for TLS (Let's Encrypt) and by every app as its base URL.
+domain: "quouskwe-project.deib.polimi.it"
+
+
+# --- Per-host feature flags (override group_vars/all/vars.yml defaults) ---
+# Uncomment and set to true once the relevant secrets are in vault.yml.
+#
+# enable_authelia: true   # SSO portal at /auth (default: true in group_vars)
+#
+enable_smtp: true
+smtp_host: "smtp-relay.brevo.com"
+smtp_port: 587
+smtp_security: "starttls"
+smtp_from: "noreply@promethence.com"
+
+forgejo_oidc_group_team_map:
+  polimi:
+    polimi: [Members]
+  promethence:
+    promethence: [Members]
+  quouskwe:
+    quouskwe: [Members]

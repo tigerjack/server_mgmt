@@ -1,13 +1,23 @@
 ---
+# Each app play carries a tag matching its role name, so you can deploy a
+# single service with e.g. `./deploy.sh --limit <host> --tags forgejo`.
+#
+# The final "Restart traefik" play is tagged `always`, so it runs on EVERY
+# invocation regardless of which tag you select. Traefik discovers containers
+# dynamically over the Podman socket, but that event stream isn't always
+# reliable under rootless Podman, so this restart guarantees a freshly
+# (re)deployed service is picked up — even on a single-role run.
 - name: Reverse proxy (traefik) - must come first, everything else depends on it
   hosts: all
   roles:
     - traefik
+  tags: [traefik]
 
 # EXPERIMENTAL - identity provider. Runs right after traefik so the apps that
 # follow can register against it. No-op unless enable_authelia is true.
 - name: Authelia single sign-on / OIDC provider (experimental)
   hosts: all
+  tags: [authelia]
   tasks:
     - name: Deploy Authelia
       ansible.builtin.include_role:
@@ -18,31 +28,39 @@
   hosts: all
   roles:
     - static_site
+  tags: [static_site]
 
 - name: Nextcloud (file storage, at /cloud)
   hosts: all
   roles:
     - nextcloud
+  tags: [nextcloud]
 
 - name: Forgejo (git forge, web at /git, ssh on :2222)
   hosts: all
   roles:
     - forgejo
+  tags: [forgejo]
 
 - name: Collabora Online (secondary document server)
   hosts: all
   roles:
     - collabora
+  tags: [collabora]
 
 - name: EuroOffice Document Server (primary document server)
   hosts: all
   roles:
     - eurooffice
+  tags: [eurooffice]
 
 - name: Restart Traefik so it queries all containers after they are all up
   hosts: all
   become: true
   become_user: "{{ containers_user }}"
+  # `always` => runs on every deploy, including single-role runs, so traefik
+  # always re-discovers whatever was just (re)deployed.
+  tags: [always]
   tasks:
     - name: Restart traefik
       ansible.builtin.systemd:

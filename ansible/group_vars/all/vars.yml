@@ -56,3 +56,45 @@ smtp_from: "noreply@{{ domain }}"
 
 # Authelia is served under this path on the main domain (no subdomain needed).
 authelia_subpath: "/auth"
+
+# ---------------------------------------------------------------------------
+# OIDC group → role mapping
+# ---------------------------------------------------------------------------
+# Authelia issues a `groups` claim (the list under each user in authelia_users)
+# to Forgejo and Nextcloud. These settings decide how the apps react to it.
+#
+# Forgejo: members of this Authelia group are made Forgejo admins on login.
+forgejo_oidc_admin_group: "admins"
+#
+# Forgejo group → org-team mapping. Maps an Authelia group to one or more
+# Forgejo teams inside one or more orgs. Users are added to (and, by default,
+# removed from) teams at each login based on their current group membership.
+#
+# The value is a nested dict rendered to JSON: { "<group>": { "<org>": ["<team>", ...], ... }, ... }
+# An empty dict (the default) means no team mapping is applied.
+#
+# IMPORTANT: orgs and teams referenced here must already exist in Forgejo —
+# the deploy only manages membership, it does not create orgs or teams.
+#
+# Example (add to host_vars/<host>/vars.yml to override per host):
+#   forgejo_oidc_group_team_map:
+#     polimi:
+#       polimi: [Members]
+#     developers:
+#       polimi: [Developers]
+#
+# With this example:
+#   - A user in group `polimi`     → added to the `Members`    team of org `polimi`
+#   - A user in group `developers` → added to the `Developers` team of org `polimi`
+#   - A user in both               → added to both teams
+#
+# Users removed from a group are also removed from the mapped team on next login
+# (controlled by forgejo_oidc_group_team_map_removal, on by default).
+forgejo_oidc_group_team_map: {}
+forgejo_oidc_group_team_map_removal: true
+#
+# Nextcloud: when true, Authelia groups are synced into Nextcloud groups on
+# login (useful for quotas, group folders, and share policies). Note: this does
+# NOT grant Nextcloud admin — admin rights come from the built-in `admin` group,
+# which is kept local on purpose. Use the local admin account for that.
+nextcloud_oidc_group_provisioning: true
