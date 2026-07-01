@@ -520,7 +520,9 @@ roles handle three non-obvious issues automatically:
   `allow_local_remote_servers=true` when Authelia is enabled.
 - **Traefik backend refresh.** Authelia gets a fresh IP on each deploy, so the
   role restarts Traefik right after (re)creating it. Manually restarting any app
-  container likewise needs a Traefik restart after.
+  container likewise needs a Traefik restart after. The same applies to overnight
+  `podman-auto-update` runs — handled automatically by the drop-in described
+  under [Automatic image updates](#automatic-image-updates).
 
 ### Forward-auth for bare routes
 
@@ -667,6 +669,13 @@ The traefik role enables `podman-auto-update.timer`, which checks daily for new
 patch releases under the same `major.minor` tag and restarts affected
 containers. To bump a major or minor version, change the tag in
 `group_vars/all/vars.yml` and re-run the relevant role.
+
+An auto-update **recreates** each updated container, which comes up with a new
+IP on the `edge` network. Traefik would keep routing to the old IP and return
+`502` until re-discovering it, so the role installs a systemd drop-in
+(`podman-auto-update.service.d/restart-traefik.conf`) whose `ExecStartPost`
+restarts Traefik after every auto-update run. Without this, an overnight
+auto-update could leave an app 502ing until the next manual Traefik restart.
 
 ### Nextcloud major version upgrades
 
