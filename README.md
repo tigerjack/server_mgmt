@@ -299,9 +299,14 @@ Nextcloud and Forgejo accept its tokens. Full detail in
 
 ### `collabora` / `eurooffice`
 
-Two document servers connected to Nextcloud (Collabora via `richdocuments`,
-EuroOffice via the `eurooffice` app). Both run on the internal `edge` network
-only. Nextcloud uses **EuroOffice by default**; Collabora is the fallback.
+Two document server roles exist, but **EuroOffice is the editor**: the
+nextcloud role routes all Office formats to it (`defFormats`) and disables
+the `richdocuments` (Collabora) connector app, which would otherwise
+intercept double-clicks. Both servers run on the internal `edge` network
+only. The collabora role can still be deployed (the container is simply
+unused by Nextcloud) or dropped from `site.yml` to save RAM; to switch back,
+re-enable `richdocuments` and remove the disable task from the nextcloud
+role.
 
 ---
 
