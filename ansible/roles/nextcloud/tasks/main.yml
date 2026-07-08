@@ -277,8 +277,7 @@
   until: nc_app_install.rc == 0 or 'already installed' in nc_app_install.stdout
   loop:
     - spreed          # Talk
-    - eurooffice      # EuroOffice document editor (ONLYOFFICE fork) — primary
-    - richdocuments   # Collabora Online connector — secondary
+    - eurooffice      # EuroOffice document editor (ONLYOFFICE fork) — THE editor
     - contacts
     - contactsinteraction
     - groupfolders    # "Team folders" in the UI — shared group storage
@@ -366,14 +365,40 @@
       sh -c 'php /var/www/html/occ config:app:set eurooffice jwt_secret --value="$EUROOFFICE_JWT_SECRET"'
   changed_when: true
 
-- name: Configure Collabora connection (secondary editor)
+# Claim the Office formats for EuroOffice so double-click opens the editor
+# instead of downloading the file. Without this the app is connected but
+# registers no file handlers. argv form: the JSON value must survive intact
+# (cmd-string shlex parsing would strip the inner quotes).
+- name: Route Office formats to EuroOffice (defFormats)
   become: true
   become_user: "{{ containers_user }}"
   ansible.builtin.command:
-    cmd: >
-      podman exec --user www-data nextcloud php /var/www/html/occ
-      config:app:set richdocuments wopi_url --value="https://{{ domain }}"
+    argv:
+      - podman
+      - exec
+      - --user
+      - www-data
+      - nextcloud
+      - php
+      - /var/www/html/occ
+      - config:app:set
+      - eurooffice
+      - defFormats
+      - "--value={{ {'docx': 'true', 'xlsx': 'true', 'pptx': 'true',
+                     'doc': 'true', 'xls': 'true', 'ppt': 'true',
+                     'odt': 'true', 'ods': 'true', 'odp': 'true'} | to_json }}"
   changed_when: true
+
+# EuroOffice is the only editor: richdocuments (the Collabora connector)
+# otherwise intercepts Office-file double-clicks. Disable it if present
+# (no-op when it was never installed).
+- name: Disable richdocuments so EuroOffice owns Office files
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:disable richdocuments
+  changed_when: true
+  failed_when: false
 
 # System config
 - name: Configure Nextcloud system settings
