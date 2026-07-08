@@ -333,6 +333,23 @@
       config:app:set eurooffice DocumentServerUrl --value="https://{{ domain }}/eurooffice-ds/"
   changed_when: true
 
+# StorageUrl is the base the DOCUMENT SERVER uses to download files from
+# Nextcloud. It must be the bare origin (no /cloud): in CLI context (occ,
+# cron) Nextcloud builds absolute URLs as overwrite.cli.url + webroot'd
+# route path, yielding a double /cloud/cloud/... that 404s - the app then
+# reports "Error while downloading the document file to be converted" and
+# Office files download in the browser instead of opening. The app rewrites
+# the generated base with StorageUrl, collapsing the duplicate; in web
+# context the rewrite is a no-op, so this is safe for normal opens too.
+- name: Configure EuroOffice storage URL (bare origin, avoids double webroot)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user www-data nextcloud php /var/www/html/occ
+      config:app:set eurooffice StorageUrl --value="https://{{ domain }}/"
+  changed_when: true
+
 - name: Configure EuroOffice JWT secret
   become: true
   become_user: "{{ containers_user }}"
