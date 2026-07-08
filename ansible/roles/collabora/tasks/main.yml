@@ -26,6 +26,12 @@
     # so callbacks reach Traefik's published 443.
     etc_hosts: "{{ {domain: ansible_facts['default_ipv4']['address']} }}"
     env:
+      # WOPI-host allow-list. Modern CODE (24.04+) uses aliasgroup1..N (full
+      # URL, dots escaped) and IGNORES the legacy `domain` env - with only
+      # `domain` set the allow-list is empty, coolwsd refuses to dial the WOPI
+      # callback (CheckFileInfo returned 0 in ms) and the browser shows
+      # "Unauthorised WOPI host". Keep `domain` for older images; harmless.
+      aliasgroup1: "https://{{ domain | replace('.', '\\.') }}:443"
       domain: "{{ domain | replace('.', '\\.') }}"
       # collabora_log_level: coolwsd verbosity (warning by default). Deploy with
       #   ./deploy.sh --tags collabora -e collabora_log_level=debug
