@@ -26,8 +26,17 @@ nextcloud_db_image:      "docker.io/mariadb:11.4"
 nextcloud_valkey_image:  "docker.io/valkey/valkey:8-alpine"
 forgejo_image:           "codeberg.org/forgejo/forgejo:9"
 forgejo_db_image:        "docker.io/mariadb:11.4"
+# Collabora publishes full-version tags (24.04.6.1.1 etc.) but no
+# patch-tracking major.minor tag, so this is an exact pin - bump manually.
+# NEVER use :latest here: an overnight auto-update once jumped a major
+# version (25 -> 26) and broke document opening (WOPI allow-list change).
 collabora_image:         "docker.io/collabora/code:24.04.6.1.1"
-# collabora_image:         "docker.io/collabora/code:latest"
+# The EuroOffice registry only publishes CI build tags (build-...-<sha>),
+# nothing version-stable, so pin by digest of a verified-working image
+# (running server version 9.3.1.37). Find the digest of the running image:
+#   podman inspect eurooffice-ds --format '{{.ImageDigest}}'
+# NOTE: a digest-pinned image is exempt from podman-auto-update - updates
+# are manual: bump the digest here and redeploy the eurooffice role.
 eurooffice_ds_image:     "ghcr.io/euro-office/documentserver:latest"
 authelia_image:          "docker.io/authelia/authelia:4.39"
 
