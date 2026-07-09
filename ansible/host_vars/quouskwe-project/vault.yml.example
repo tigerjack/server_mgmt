@@ -183,13 +183,15 @@ vault_oidc_nextcloud_client_secret_hash: ""
 #      podman run --rm docker.io/authelia/authelia:4.39 \
 #        authelia crypto hash generate argon2 --password 'ChangeMe123!'
 # 2. Put that hash here, deploy.
-# 3. The user logs in with the throwaway password, then either:
-#    a. Uses "Forgot my password" at https://<domain>/auth (requires SMTP) to
-#       set their own password — they never need to share it with you.
-#    b. Or you harvest the new hash from /etc/authelia/users_database.yml after
-#       they reset it via the portal, and update this vault entry.
-# 4. For SMTP-less hosts: the user must change their password through the portal
-#    UI (Settings → Change password) while still logged in with the throwaway.
+# 3. The user logs in with the throwaway password and sets their own via
+#    "Forgot my password" at https://<domain>/auth (requires SMTP) or the portal
+#    UI (Settings → Change password) — they never need to share it with you.
+#
+# Deploys DO NOT overwrite passwords users have changed: the role reads the
+# current /etc/authelia/users_database.yml and keeps the server's hash for any
+# user already present. The password_hash here only seeds NEW users, so there
+# is no need to harvest hashes back into this vault after resets. Removing a
+# user's entry here still revokes their access on the next deploy.
 authelia_users:
   - username: "sperriello"
     displayname: "Stefano Perriello"
