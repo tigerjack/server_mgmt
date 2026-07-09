@@ -37,7 +37,7 @@ collabora_image:         "docker.io/collabora/code:24.04.6.1.1"
 #   podman inspect eurooffice-ds --format '{{.ImageDigest}}'
 # NOTE: a digest-pinned image is exempt from podman-auto-update - updates
 # are manual: bump the digest here and redeploy the eurooffice role.
-eurooffice_ds_image:     "ghcr.io/euro-office/documentserver:latest"
+eurooffice_ds_image:     "ghcr.io/euro-office/documentserver@sha256:5a1a8b7083856b309f09a5b06aa96f80182cbdfccddcae6c082ecf7a2b3cbf2b"
 authelia_image:          "docker.io/authelia/authelia:4.39"
 
 # ISO 3166-1 alpha-2 region code used to validate phone numbers without a
