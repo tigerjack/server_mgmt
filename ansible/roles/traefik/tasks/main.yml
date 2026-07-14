@@ -58,6 +58,47 @@
     enabled: true
     state: started
 
+# When podman-auto-update pulls a new image it RECREATES the container, which
+# comes up with a fresh IP on the edge network. Traefik's podman/docker provider
+# watches the socket for that event, but the watch can silently drop on the
+# rootless socket, leaving Traefik routing to the dead container's old IP -> the
+# app 502s until Traefik is restarted. A drop-in adds an ExecStartPost that
+# restarts Traefik after every auto-update run, forcing it to re-read endpoints.
+- name: Create podman-auto-update systemd drop-in directory
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.file:
+    path: "/home/{{ containers_user }}/.config/systemd/user/podman-auto-update.service.d"
+    state: directory
+    mode: "0755"
+
+- name: Restart traefik after auto-update so it re-reads recreated containers' IPs
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.copy:
+    dest: "/home/{{ containers_user }}/.config/systemd/user/podman-auto-update.service.d/restart-traefik.conf"
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      # podman auto-update recreates each updated container with a NEW IP on the
+      # edge network. Traefik's provider watches the podman event socket, but that
+      # watch can silently drop with the rootless socket, leaving Traefik routing
+      # to the dead container's old IP (502 Bad Gateway on the affected app until
+      # Traefik is restarted). Restart Traefik right after every auto-update run so
+      # it re-reads current endpoints. Harmless if Traefik itself was just updated
+      # (it is simply restarted a second time).
+      [Service]
+      ExecStartPost=/usr/bin/systemctl --user restart container-traefik.service
+  register: traefik_autoupdate_dropin
+
+- name: Reload the user systemd manager so the auto-update drop-in takes effect
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    daemon_reload: true
+  when: traefik_autoupdate_dropin is changed
+
 - name: Create traefik config/cert directories
   become: true
   ansible.builtin.file:

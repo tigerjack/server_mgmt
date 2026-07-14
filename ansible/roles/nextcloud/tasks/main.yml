@@ -277,8 +277,7 @@
   until: nc_app_install.rc == 0 or 'already installed' in nc_app_install.stdout
   loop:
     - spreed          # Talk
-    - eurooffice      # EuroOffice document editor (ONLYOFFICE fork) — primary
-    - richdocuments   # Collabora Online connector — secondary
+    - eurooffice      # EuroOffice document editor (ONLYOFFICE fork) — THE editor
     - contacts
     - contactsinteraction
     - groupfolders    # "Team folders" in the UI — shared group storage
@@ -333,6 +332,23 @@
       config:app:set eurooffice DocumentServerUrl --value="https://{{ domain }}/eurooffice-ds/"
   changed_when: true
 
+# NOTE: do NOT set the eurooffice StorageUrl app config. In web context the
+# generated URLs are already correct, and the StorageUrl rewrite strips the
+# /cloud webroot from the document server's save callback (-> 404, "the
+# document could not be saved"). The CLI-context double-webroot problem it
+# was meant to solve is fixed at the source instead: overwrite.cli.url below
+# is the bare origin, because CLI-generated route paths already include the
+# webroot.
+- name: Remove EuroOffice storage URL override (breaks save callbacks)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >
+      podman exec --user www-data nextcloud php /var/www/html/occ
+      config:app:delete eurooffice StorageUrl
+  changed_when: true
+  failed_when: false
+
 - name: Configure EuroOffice JWT secret
   become: true
   become_user: "{{ containers_user }}"
@@ -349,14 +365,40 @@
       sh -c 'php /var/www/html/occ config:app:set eurooffice jwt_secret --value="$EUROOFFICE_JWT_SECRET"'
   changed_when: true
 
-- name: Configure Collabora connection (secondary editor)
+# Claim the Office formats for EuroOffice so double-click opens the editor
+# instead of downloading the file. Without this the app is connected but
+# registers no file handlers. argv form: the JSON value must survive intact
+# (cmd-string shlex parsing would strip the inner quotes).
+- name: Route Office formats to EuroOffice (defFormats)
   become: true
   become_user: "{{ containers_user }}"
   ansible.builtin.command:
-    cmd: >
-      podman exec --user www-data nextcloud php /var/www/html/occ
-      config:app:set richdocuments wopi_url --value="https://{{ domain }}"
+    argv:
+      - podman
+      - exec
+      - --user
+      - www-data
+      - nextcloud
+      - php
+      - /var/www/html/occ
+      - config:app:set
+      - eurooffice
+      - defFormats
+      - "--value={{ {'docx': 'true', 'xlsx': 'true', 'pptx': 'true',
+                     'doc': 'true', 'xls': 'true', 'ppt': 'true',
+                     'odt': 'true', 'ods': 'true', 'odp': 'true'} | to_json }}"
   changed_when: true
+
+# EuroOffice is the only editor: richdocuments (the Collabora connector)
+# otherwise intercepts Office-file double-clicks. Disable it if present
+# (no-op when it was never installed).
+- name: Disable richdocuments so EuroOffice owns Office files
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: podman exec --user www-data nextcloud php /var/www/html/occ app:disable richdocuments
+  changed_when: true
+  failed_when: false
 
 # System config
 - name: Configure Nextcloud system settings
@@ -368,11 +410,15 @@
       config:system:set {{ item.key }} {{ item.extra | default('') }} --value="{{ item.value }}"
   changed_when: true
   loop:
-    # Used by CLI and some admin checks. The container can't reach the public
-    # HTTPS URL from inside (hairpin NAT), so some admin self-tests will still
-    # show "could not check" — the actual features work fine.
+    # Base for absolute URLs generated in CLI context (occ, cron - e.g. the
+    # eurooffice --check, links in notification emails). MUST be the bare
+    # origin WITHOUT /cloud: route paths generated under OVERWRITEWEBROOT
+    # already include the webroot, so a /cloud here yields double
+    # /cloud/cloud/... URLs that 404 (observed as the EuroOffice document
+    # server failing to download files during occ eurooffice:documentserver
+    # --check).
     - key: overwrite.cli.url
-      value: "https://{{ domain }}/cloud/"
+      value: "https://{{ domain }}"
     # Run heavy background jobs at 1 AM to avoid impacting users
     - key: maintenance_window_start
       extra: "--type=integer"

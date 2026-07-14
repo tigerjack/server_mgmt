@@ -63,6 +63,35 @@
     group: "{{ containers_user }}"
     mode: "0600"
 
+# The server copy of users_database.yml DRIFTS from the vault: Authelia's
+# password-reset flow writes the user's new hash into the file (hot-reloaded
+# via watch: true). Blindly re-templating from the vault would clobber every
+# password users have changed since the last deploy. So: read the current
+# server file first and let its hashes win. The vault stays the authority on
+# WHO exists (add/revoke, groups, email, displayname); the server is the
+# authority on each existing user's password hash. Vault hashes only seed
+# brand-new users.
+- name: Check for an existing users database on the server
+  become: true
+  ansible.builtin.stat:
+    path: /etc/authelia/users_database.yml
+  register: authelia_users_db_stat
+
+- name: Read current server users database (password hashes may be newer than vault)
+  become: true
+  no_log: true        # contains password hashes
+  ansible.builtin.slurp:
+    src: /etc/authelia/users_database.yml
+  register: authelia_users_db_current
+  when: authelia_users_db_stat.stat.exists
+
+- name: Parse current server users database
+  no_log: true
+  ansible.builtin.set_fact:
+    authelia_server_users: >-
+      {{ ((authelia_users_db_current.content | b64decode | from_yaml) or {}).users | default({}) }}
+  when: authelia_users_db_stat.stat.exists
+
 - name: Deploy authelia users database
   become: true
   no_log: true        # contains password hashes

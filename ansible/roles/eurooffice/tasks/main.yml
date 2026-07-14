@@ -18,6 +18,13 @@
     state: present
     network:
       - edge
+    # Same hairpin fix as Forgejo/Nextcloud/Collabora: the host's /etc/hosts
+    # maps the FQDN to 127.0.1.1, which Podman copies into the container. The
+    # document server downloads files FROM Nextcloud via the public domain, so
+    # it dials loopback and fails with "Error while downloading the document
+    # file to be converted" (files just download in the browser instead of
+    # opening). Map the domain to the real host IP so it reaches Traefik's 443.
+    etc_hosts: "{{ {domain: ansible_facts['default_ipv4']['address']} }}"
     env:
       JWT_ENABLED: "true"
       JWT_SECRET: "{{ vault_eurooffice_jwt_secret }}"

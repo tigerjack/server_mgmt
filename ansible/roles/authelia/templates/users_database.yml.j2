@@ -7,12 +7,16 @@
 #   podman run --rm {{ authelia_image }} authelia crypto hash generate argon2 --password 'TheirPassword'
 # add an entry to authelia_users in group_vars/all/vault.yml, then re-run the
 # playbook. To revoke access: set disabled: true (or remove the entry) and re-run.
+# Password hashes: the hash CURRENTLY on the server wins (users change their
+# passwords via Authelia's reset flow, which rewrites this file in place); the
+# vault's password_hash is only the initial hash for users not yet present.
 users:
+{% set srv = authelia_server_users | default({}) %}
 {% for u in authelia_users | default([]) %}
   {{ u.username }}:
     disabled: {{ u.disabled | default(false) | string | lower }}
     displayname: "{{ u.displayname | default(u.username) }}"
-    password: "{{ u.password_hash }}"
+    password: "{{ (srv[u.username].password if (u.username in srv and srv[u.username].password is defined) else u.password_hash) }}"
     email: "{{ u.email }}"
     groups:
 {% for g in u.groups | default(['users']) %}

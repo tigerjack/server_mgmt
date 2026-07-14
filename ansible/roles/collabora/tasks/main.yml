@@ -18,9 +18,30 @@
     state: present
     network:
       - edge
+    # Same hairpin fix as Forgejo/Nextcloud: the host's /etc/hosts maps the
+    # FQDN to 127.0.1.1, which Podman copies into the container. Collabora's
+    # WOPI callbacks (CheckFileInfo, file fetch/save) dial the public domain,
+    # hit loopback, and fail with "returned 0 (Unknown)" — surfacing in the
+    # browser as "Unauthorised WOPI host". Map the domain to the real host IP
+    # so callbacks reach Traefik's published 443.
+    etc_hosts: "{{ {domain: ansible_facts['default_ipv4']['address']} }}"
     env:
+      # WOPI-host allow-list. Modern CODE (24.04+) uses aliasgroup1..N (full
+      # URL, dots escaped) and IGNORES the legacy `domain` env - with only
+      # `domain` set the allow-list is empty, coolwsd refuses to dial the WOPI
+      # callback (CheckFileInfo returned 0 in ms) and the browser shows
+      # "Unauthorised WOPI host". Keep `domain` for older images; harmless.
+      aliasgroup1: "https://{{ domain | replace('.', '\\.') }}:443"
       domain: "{{ domain | replace('.', '\\.') }}"
-      extra_params: "--o:ssl.enable=false --o:ssl.termination=true --o:mount_jail_tree=false"
+      # collabora_log_level: coolwsd verbosity (warning by default). Deploy with
+      #   ./deploy.sh --tags collabora -e collabora_log_level=debug
+      # to diagnose WOPI callback failures (CheckFileInfo etc.), then redeploy
+      # without it to go back to warning.
+      # collabora_extra_params: extra one-off coolwsd -o: switches for
+      # diagnostics, e.g. -e collabora_extra_params="--o:ssl.ssl_verification=false"
+      # to test whether coolwsd's own TLS verification is what breaks WOPI
+      # callbacks. Empty (unset) in normal operation.
+      extra_params: "--o:ssl.enable=false --o:ssl.termination=true --o:mount_jail_tree=false --o:logging.level={{ collabora_log_level | default('warning') }} {{ collabora_extra_params | default('') }}"
       username: "{{ vault_collabora_admin_user }}"
       password: "{{ vault_collabora_admin_password }}"
     label:

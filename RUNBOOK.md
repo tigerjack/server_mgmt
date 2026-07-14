@@ -287,6 +287,23 @@ sudo journalctl _SYSTEMD_USER_UNIT=container-traefik.service -n 50
 scont systemctl --user restart container-traefik.service
 ```
 
+### 502 after an overnight `podman-auto-update`
+
+An auto-update recreates each updated container with a **new IP**, and Traefik
+can be left routing to the dead one. A drop-in
+(`podman-auto-update.service.d/restart-traefik.conf`) restarts Traefik after
+each auto-update run to prevent this. If you still see a morning 502, the
+symptom is: the app itself is healthy (`scont podman exec --user www-data
+nextcloud php /var/www/html/occ status` works) but the public URL 502s. Restart
+Traefik and confirm the drop-in is wired up:
+
+```bash
+scont systemctl --user restart container-traefik.service
+
+# Confirm the ExecStartPost hook is present:
+scont systemctl --user cat podman-auto-update.service | grep ExecStartPost
+```
+
 ---
 
 ## Container status

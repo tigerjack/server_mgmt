@@ -34,6 +34,7 @@ all services from a single domain.
 - [Nextcloud subpath install notes](#nextcloud-subpath-install-notes)
 - [Repository structure](#repository-structure)
 - **[RUNBOOK.md](RUNBOOK.md)** — logs, diagnostics, common fixes
+- **[FORGEJO-UPGRADE.md](FORGEJO-UPGRADE.md)** — Forgejo major-version upgrades, group→team mapping explained
 
 ---
 
@@ -299,9 +300,14 @@ Nextcloud and Forgejo accept its tokens. Full detail in
 
 ### `collabora` / `eurooffice`
 
-Two document servers connected to Nextcloud (Collabora via `richdocuments`,
-EuroOffice via the `eurooffice` app). Both run on the internal `edge` network
-only. Nextcloud uses **EuroOffice by default**; Collabora is the fallback.
+Two document server roles exist, but **EuroOffice is the editor**: the
+nextcloud role routes all Office formats to it (`defFormats`) and disables
+the `richdocuments` (Collabora) connector app, which would otherwise
+intercept double-clicks. Both servers run on the internal `edge` network
+only. The collabora role can still be deployed (the container is simply
+unused by Nextcloud) or dropped from `site.yml` to save RAM; to switch back,
+re-enable `richdocuments` and remove the disable task from the nextcloud
+role.
 
 ---
 
@@ -520,7 +526,9 @@ roles handle three non-obvious issues automatically:
   `allow_local_remote_servers=true` when Authelia is enabled.
 - **Traefik backend refresh.** Authelia gets a fresh IP on each deploy, so the
   role restarts Traefik right after (re)creating it. Manually restarting any app
-  container likewise needs a Traefik restart after.
+  container likewise needs a Traefik restart after. The same applies to overnight
+  `podman-auto-update` runs — handled automatically by the drop-in described
+  under [Automatic image updates](#automatic-image-updates).
 
 ### Forward-auth for bare routes
 
@@ -667,6 +675,13 @@ The traefik role enables `podman-auto-update.timer`, which checks daily for new
 patch releases under the same `major.minor` tag and restarts affected
 containers. To bump a major or minor version, change the tag in
 `group_vars/all/vars.yml` and re-run the relevant role.
+
+An auto-update **recreates** each updated container, which comes up with a new
+IP on the `edge` network. Traefik would keep routing to the old IP and return
+`502` until re-discovering it, so the role installs a systemd drop-in
+(`podman-auto-update.service.d/restart-traefik.conf`) whose `ExecStartPost`
+restarts Traefik after every auto-update run. Without this, an overnight
+auto-update could leave an app 502ing until the next manual Traefik restart.
 
 ### Nextcloud major version upgrades
 
