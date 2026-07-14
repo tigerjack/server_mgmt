@@ -24,7 +24,7 @@ static_site_image:       "docker.io/nginx:1.27-alpine"
 nextcloud_image:         "docker.io/nextcloud:34-apache"
 nextcloud_db_image:      "docker.io/mariadb:11.4"
 nextcloud_valkey_image:  "docker.io/valkey/valkey:8-alpine"
-forgejo_image:           "codeberg.org/forgejo/forgejo:9"
+forgejo_image:           "codeberg.org/forgejo/forgejo:15"
 forgejo_db_image:        "docker.io/mariadb:11.4"
 # Collabora publishes full-version tags (24.04.6.1.1 etc.) but no
 # patch-tracking major.minor tag, so this is an exact pin - bump manually.
