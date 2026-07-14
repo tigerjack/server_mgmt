@@ -34,6 +34,7 @@ all services from a single domain.
 - [Nextcloud subpath install notes](#nextcloud-subpath-install-notes)
 - [Repository structure](#repository-structure)
 - **[RUNBOOK.md](RUNBOOK.md)** — logs, diagnostics, common fixes
+- **[FORGEJO-UPGRADE.md](FORGEJO-UPGRADE.md)** — Forgejo major-version upgrades, group→team mapping explained
 
 ---
 
