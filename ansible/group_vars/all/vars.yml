@@ -16,6 +16,9 @@ static_site_dir: "site"
 # Subnet for the shared edge network (traefik + app front ends).
 # Change if it conflicts with an existing network on your hosts.
 edge_network_subnet: "10.89.0.0/24"
+# Name of that shared network (used by the forgejo Actions runner to reach
+# Forgejo internally, and by job containers for checkout).
+edge_network_name: "edge"
 
 # Container images - pinned to major.minor, patched automatically by
 # podman-auto-update. Bump major.minor deliberately after reading release notes.
@@ -26,6 +29,10 @@ nextcloud_db_image:      "docker.io/mariadb:11.4"
 nextcloud_valkey_image:  "docker.io/valkey/valkey:8-alpine"
 forgejo_image:           "codeberg.org/forgejo/forgejo:15"
 forgejo_db_image:        "docker.io/mariadb:11.4"
+# Forgejo Actions runner (act_runner). VERIFY the tag exists before first
+# deploy: `scont podman search --list-tags code.forgejo.org/forgejo/runner`
+# then set the newest stable tag here. Never :latest.
+forgejo_runner_image:    "code.forgejo.org/forgejo/runner:6.3.1"
 # Collabora publishes full-version tags (24.04.6.1.1 etc.) but no
 # patch-tracking major.minor tag, so this is an exact pin - bump manually.
 # NEVER use :latest here: an overnight auto-update once jumped a major
@@ -108,3 +115,22 @@ forgejo_oidc_group_team_map_removal: true
 # NOT grant Nextcloud admin — admin rights come from the built-in `admin` group,
 # which is kept local on purpose. Use the local admin account for that.
 nextcloud_oidc_group_provisioning: true
+
+# ---------------------------------------------------------------------------
+# Forgejo Actions runner (act_runner) — same-host CI, resource-capped
+# ---------------------------------------------------------------------------
+# Internal URL the runner uses to reach Forgejo (container name on the edge
+# network; avoids TLS/hairpin). Do not point this at the public https URL.
+forgejo_runner_instance_url: "http://forgejo:3000"
+# Labels this runner advertises, in act_runner's "<label>:docker://<image>"
+# form: a workflow's `runs-on: docker` matches the `docker` label and, unless
+# it names its own container, runs in the mapped image. Adjust the image to
+# whatever your workflows expect.
+forgejo_runner_labels: "docker:docker://node:20-bookworm"
+# Concurrency and per-job resource caps. Kept conservative because CI shares
+# the host with all your services (and this box has hit disk/RAM pressure).
+forgejo_runner_capacity: 1          # max concurrent jobs
+forgejo_runner_job_timeout: "1h"
+forgejo_runner_job_memory: "2g"     # hard cap per job container (mem == swap)
+forgejo_runner_job_cpus: "2"        # CPU cap per job container
+forgejo_runner_daemon_memory: "512m"  # cap for the runner daemon itself

@@ -1,0 +1,32 @@
+# {{ ansible_managed }}
+# Forgejo Actions runner (act_runner) config. Registration state (which
+# instance, which labels) lives in /data/.runner; this file controls runtime
+# behaviour - concurrency and, importantly, the resource caps applied to each
+# job container.
+log:
+  level: info
+
+runner:
+  # Max concurrent jobs on this host. Keep low: jobs share the box with all
+  # your services, and you have already hit disk/RAM pressure here.
+  capacity: {{ forgejo_runner_capacity }}
+  timeout: {{ forgejo_runner_job_timeout }}
+  # Empty => use the labels chosen at registration (stored in /data/.runner).
+  labels: []
+
+cache:
+  enabled: true
+
+container:
+  # Network for JOB containers. Set to the edge network so a job can reach
+  # Forgejo at the internal name (http://forgejo:3000) for checkout - the
+  # default per-job network cannot resolve container names.
+  network: "{{ edge_network_name }}"
+  # Extra args passed to EVERY job container. This is where per-job resource
+  # caps must live: job containers are spawned as siblings via the Podman
+  # socket, so the daemon's own cgroup limit does not constrain them.
+  options: "--memory={{ forgejo_runner_job_memory }} --memory-swap={{ forgejo_runner_job_memory }} --cpus={{ forgejo_runner_job_cpus }}"
+  # Don't let workflows bind-mount arbitrary host paths into jobs.
+  valid_volumes: []
+  # Force pull policy off-registry only when missing (keeps repeated jobs fast).
+  force_pull: false
