@@ -32,7 +32,7 @@ forgejo_db_image:        "docker.io/mariadb:11.4"
 # Forgejo Actions runner (act_runner). VERIFY the tag exists before first
 # deploy: `scont podman search --list-tags code.forgejo.org/forgejo/runner`
 # then set the newest stable tag here. Never :latest.
-forgejo_runner_image:    "code.forgejo.org/forgejo/runner:6.3.1"
+forgejo_runner_image:    "code.forgejo.org/forgejo/runner:12.0"
 # Collabora publishes full-version tags (24.04.6.1.1 etc.) but no
 # patch-tracking major.minor tag, so this is an exact pin - bump manually.
 # NEVER use :latest here: an overnight auto-update once jumped a major
