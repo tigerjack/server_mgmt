@@ -1,0 +1,148 @@
+---
+# Forgejo Actions runner (act_runner). Forgejo queues Actions jobs but does not
+# execute them - a separate runner daemon must register with the instance and
+# pick jobs up. Without it, jobs sit "Waiting for a runner with the label:
+# docker" forever. This runs the runner on the SAME host as Forgejo, executing
+# each job as a sibling container via the rootless Podman socket.
+
+- name: Look up the containers user's uid (for the rootless podman socket path)
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ containers_user }}"
+  register: fr_containers_passwd
+
+- name: Set containers_uid fact
+  ansible.builtin.set_fact:
+    containers_uid: "{{ fr_containers_passwd.ansible_facts.getent_passwd[containers_user][1] }}"
+
+- name: Ensure the rootless podman API socket is enabled (jobs run as sibling containers)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: podman.socket
+    enabled: true
+    state: started
+
+- name: Create the runner data volume (persists registration state in /data/.runner)
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_volume:
+    name: forgejo-runner-data
+    state: present
+
+- name: Create the runner config directory on the host
+  become: true
+  ansible.builtin.file:
+    path: /etc/forgejo-runner
+    state: directory
+    owner: "{{ containers_user }}"
+    group: "{{ containers_user }}"
+    mode: "0755"
+
+- name: Deploy the runner config (job resource caps, concurrency, job network)
+  become: true
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/forgejo-runner/config.yaml
+    owner: "{{ containers_user }}"
+    group: "{{ containers_user }}"
+    mode: "0644"
+
+- name: Stop the runner while (re)configuring
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-forgejo-runner.service
+    state: stopped
+  failed_when: false
+
+# Registration is one-time: the resulting /data/.runner persists in the volume.
+# Re-registering on every deploy would create duplicate runners in Forgejo, so
+# only register when .runner is absent.
+- name: Check whether this runner is already registered
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >
+      podman run --rm -v forgejo-runner-data:/data
+      {{ forgejo_runner_image }} test -f /data/.runner
+  register: fr_registered
+  changed_when: false
+  failed_when: false
+
+- name: Generate a one-time runner registration token from Forgejo
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true        # the token is a credential
+  ansible.builtin.command:
+    cmd: podman exec --user git forgejo forgejo actions generate-runner-token
+  register: fr_token
+  changed_when: false
+  when: fr_registered.rc != 0
+
+- name: Register the runner (first run only; labels are baked into /data/.runner)
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true        # carries the registration token
+  # Token via env (not on the CLI) so it never appears in the host process list.
+  environment:
+    FR_TOKEN: "{{ fr_token.stdout | trim }}"
+  ansible.builtin.command:
+    cmd: >
+      podman run --rm --env FR_TOKEN --network {{ edge_network_name }}
+      -v forgejo-runner-data:/data
+      {{ forgejo_runner_image }}
+      sh -c 'forgejo-runner register --no-interactive
+      --instance {{ forgejo_runner_instance_url }}
+      --token "$FR_TOKEN"
+      --name {{ inventory_hostname }}
+      --labels {{ forgejo_runner_labels }}'
+  when: fr_registered.rc != 0
+
+- name: Run the Forgejo Actions runner daemon
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_container:
+    name: forgejo-runner
+    image: "{{ forgejo_runner_image }}"
+    state: present
+    # On the edge network so it can reach Forgejo at the internal name.
+    network:
+      - "{{ edge_network_name }}"
+    volume:
+      - forgejo-runner-data:/data
+      - /etc/forgejo-runner:/config:ro,Z
+      # The rootless Podman socket - act_runner speaks the Docker API to it to
+      # spawn job containers (same socket Traefik uses for discovery).
+      - "/run/user/{{ containers_uid }}/podman/podman.sock:/run/podman/podman.sock:Z"
+    env:
+      DOCKER_HOST: "unix:///run/podman/podman.sock"
+    command:
+      - "forgejo-runner"
+      - "daemon"
+      - "--config"
+      - "/config/config.yaml"
+    # Cap the DAEMON itself. Note: this does NOT limit the job containers it
+    # spawns as siblings - those caps live in config.yaml (container.options).
+    memory: "{{ forgejo_runner_daemon_memory }}"
+    label:
+      io.containers.autoupdate: "registry"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      requires:
+        - container-forgejo.service
+      names: true
+      new: true
+
+- name: Start the Forgejo Actions runner at boot
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: container-forgejo-runner.service
+    enabled: true
+    state: started
+    daemon_reload: true

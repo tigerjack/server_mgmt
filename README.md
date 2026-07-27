@@ -292,6 +292,19 @@ git remote add origin example.com:owner/repo.git
 (Without the config block, clone explicitly:
 `git clone ssh://git@example.com:2222/owner/repo.git`.)
 
+### `forgejo_runner`
+
+Forgejo Actions runner (`act_runner`) — same-host CI. Forgejo queues Actions
+jobs but does not run them; this daemon registers with the instance and
+executes each job as a sibling container via the rootless Podman socket. A
+workflow's `runs-on: docker` matches the runner's `docker` label. Registration
+is one-time (persisted in the `forgejo-runner-data` volume); a registration
+token is generated automatically from Forgejo at deploy. Resource caps
+(concurrency, per-job memory/CPU) are in `group_vars/all/vars.yml`
+(`forgejo_runner_*`) and applied to each job container — kept conservative
+because CI shares the host with every service. No web ingress (no Traefik
+labels). Deploy with `--tags forgejo_runner`.
+
 ### `authelia`
 
 Single sign-on identity provider (OIDC), on by default. Serves at `/auth`;

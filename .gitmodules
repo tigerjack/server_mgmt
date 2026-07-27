@@ -1,0 +1,4 @@
+[submodule "ansible/roles/static_site/files/site-quouskwe"]
+	path = ansible/roles/static_site/files/site-quouskwe
+	url = git@github.com:tigerjack/quouskwe-website.git
+	branch = site

@@ -42,6 +42,14 @@
     - forgejo
   tags: [forgejo]
 
+# Forgejo Actions runner (act_runner). Runs after forgejo so it can register
+# against it. Deploy on its own with `--tags forgejo_runner`.
+- name: Forgejo Actions runner (same-host CI)
+  hosts: all
+  roles:
+    - forgejo_runner
+  tags: [forgejo_runner]
+
 - name: Collabora Online (secondary document server)
   hosts: all
   roles:
