@@ -1,0 +1,165 @@
+---
+- name: Stop forgejo containers
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: "container-{{ item }}.service"
+    state: stopped
+  loop:
+    - forgejo
+    - db_forgejo
+  failed_when: false
+
+- name: Create podman volumes for forgejo
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_volume:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - forgejo-data
+    - forgejo-config
+    - forgejo-db
+
+- name: Create forgejo's internal db network
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_network:
+    name: mariadb-forgejo
+    state: present
+
+- name: Run forgejo's mariadb
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_container:
+    name: db_forgejo
+    image: "{{ mariadb_image }}"
+    state: present
+    command:
+      - "--transaction-isolation=READ-COMMITTED"
+      - "--binlog-format=ROW"
+    volume:
+      - forgejo-db:/var/lib/mysql:Z
+    network:
+      - mariadb-forgejo
+    env:
+      MARIADB_ROOT_PASSWORD: "{{ vault_forgejo_db_root_password }}"
+      MARIADB_DATABASE: "{{ vault_forgejo_db_database }}"
+      MARIADB_USER: "{{ vault_forgejo_db_user }}"
+      MARIADB_PASSWORD: "{{ vault_forgejo_db_password }}"
+      MARIADB_AUTO_UPGRADE: "true"
+    label:
+      io.containers.autoupdate: "registry"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      names: true
+      new: true
+
+# Kept as a separate mariadb instance rather than a second database on
+# nextcloud's, by design: a touch heavier on RAM, but it means you can
+# restart or upgrade either app's database independently, and a problem
+# with one project's data can't take the other project down with it.
+# If resources are tight, sharing one mariadb engine with a second
+# database/user is a reasonable alternative - just swap db_forgejo's
+# network/host for mariadb-nextcloud/db_nextcloud and drop this container.
+- name: Run forgejo
+  become: true
+  become_user: "{{ containers_user }}"
+  containers.podman.podman_container:
+    name: forgejo
+    image: "{{ forgejo_image }}"
+    state: present
+    volume:
+      - forgejo-data:/var/lib/gitea:Z
+      - forgejo-config:/etc/gitea:Z
+    network:
+      - edge
+      - mariadb-forgejo
+    label:
+      io.containers.autoupdate: "registry"
+      traefik.enable: "true"
+      # Forgejo expects the reverse proxy to forward the path AS-IS
+      # (unlike nextcloud) - it relies on ROOT_URL below to know it's
+      # mounted under /git, so there's no stripprefix middleware here.
+      traefik.http.routers.forgejo.entrypoints: "websecure"
+      traefik.http.routers.forgejo.rule: "Host(`{{ domain }}`) && PathPrefix(`/git`)"
+      traefik.http.routers.forgejo.tls: "true"
+      traefik.http.routers.forgejo.tls.certresolver: "letsencrypt"
+      traefik.http.services.forgejo.loadbalancer.server.port: "3000"
+      # Plain TCP passthrough for git-over-ssh on the dedicated gitssh
+      # entrypoint (:2222) defined in the traefik role. HostSNI(`*`) is
+      # the required catch-all rule for non-TLS TCP routing in traefik -
+      # there's no real SNI to match against on a plain SSH connection.
+      traefik.tcp.routers.forgejo-ssh.rule: "HostSNI(`*`)"
+      traefik.tcp.routers.forgejo-ssh.entrypoints: "gitssh"
+      traefik.tcp.routers.forgejo-ssh.service: "forgejo-ssh"
+      traefik.tcp.services.forgejo-ssh.loadbalancer.server.port: "2222"
+    env:
+      FORGEJO__database__DB_TYPE: "mysql"
+      FORGEJO__database__HOST: "db_forgejo:3306"
+      FORGEJO__database__NAME: "{{ vault_forgejo_db_database }}"
+      FORGEJO__database__USER: "{{ vault_forgejo_db_user }}"
+      FORGEJO__database__PASSWD: "{{ vault_forgejo_db_password }}"
+      FORGEJO__server__DOMAIN: "{{ domain }}"
+      FORGEJO__server__ROOT_URL: "https://{{ domain }}/git/"
+      FORGEJO__server__SSH_DOMAIN: "{{ domain }}"
+      FORGEJO__server__SSH_PORT: "2222"
+      FORGEJO__server__START_SSH_SERVER: "true"
+      # Database is fully configured above, so skip the web installer
+      # entirely rather than leaving the instance sitting unconfigured.
+      FORGEJO__security__INSTALL_LOCK: "true"
+      # Personal/team forge, not a public signup service - flip this if
+      # you actually want open registration.
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+    generate_systemd:
+      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      restart_policy: on-failure
+      requires:
+        - container-db_forgejo.service
+        - container-traefik.service
+      names: true
+      new: true
+
+- name: Tune forgejo systemd start/stop timeouts
+  become: true
+  become_user: "{{ containers_user }}"
+  community.general.ini_file:
+    path: "/home/{{ containers_user }}/.config/systemd/user/container-{{ item.0 }}.service"
+    section: Service
+    option: "{{ item.1 }}"
+    value: 3600
+    mode: "0664"
+    state: present
+    no_extra_spaces: true
+  loop: "{{ ['forgejo', 'db_forgejo'] | product(['TimeoutStartSec', 'TimeoutStopSec']) | list }}"
+  loop_control:
+    label: "{{ item.0 }}:{{ item.1 }}"
+
+- name: Start forgejo containers at boot (db first)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: "container-{{ item }}.service"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - db_forgejo
+    - forgejo
+
+- name: Ensure forgejo has an admin account (no-op once it already exists)
+  become: true
+  become_user: "{{ containers_user }}"
+  ansible.builtin.command:
+    cmd: >
+      podman exec forgejo forgejo admin user create
+      --username {{ vault_forgejo_admin_user }}
+      --password {{ vault_forgejo_admin_password }}
+      --email {{ vault_forgejo_admin_email }}
+      --admin --must-change-password=false
+  register: forgejo_admin_create
+  changed_when: "'already exists' not in forgejo_admin_create.stderr"
+  failed_when: forgejo_admin_create.rc != 0 and 'already exists' not in forgejo_admin_create.stderr
