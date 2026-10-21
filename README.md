@@ -143,9 +143,10 @@ $EDITOR group_vars/all/vault.yml          # set acme_email
 ansible-vault encrypt group_vars/all/vault.yml
 ```
 
-> Both vaults are gitignored and must never be committed unencrypted. To avoid
-> typing the vault password every run, save it once in `.vault_pass` (also
-> gitignored) — `deploy.sh` picks it up automatically:
+> Both vaults are committed to git **encrypted** — never commit one
+> unencrypted, and use a long random vault password, since the repo is public.
+> To avoid typing the vault password every run, save it once in `.vault_pass`
+> (gitignored) — `deploy.sh` picks it up automatically:
 > ```sh
 > echo "your-vault-password" > .vault_pass && chmod 600 .vault_pass
 > ```
@@ -776,7 +777,7 @@ ansible/
     <hostname>/            # One directory per host:
       vars.yml             #   plain per-host config (IP, domain, SSH key)
       vault.yml.example    #   per-host secret template (fully commented)
-      vault.yml            #   ENCRYPTED per-host secrets — never commit
+      vault.yml            #   ENCRYPTED per-host secrets — never commit unencrypted
   roles/
     traefik/tasks/main.yml            # Reverse proxy + TLS
     static_site/...                   # Landing page (nginx)

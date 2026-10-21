@@ -11,7 +11,8 @@
 # (quouskwe-project, ...) gets its own host_vars/<host>/vault.yml with its
 # own users and secrets — they never see each other's values.
 #
-# vault.yml and .vault_pass are gitignored and must NEVER be committed.
+# vault.yml is committed ENCRYPTED only (ansible-vault encrypt) - never commit it
+# in plaintext. .vault_pass is gitignored and must NEVER be committed.
 
 # ---------------------------------------------------------------------------
 # Forgejo
