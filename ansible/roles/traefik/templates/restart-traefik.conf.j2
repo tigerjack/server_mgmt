@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+# podman auto-update recreates each updated container with a NEW IP on the
+# edge network. Traefik's provider watches the podman event socket, but that
+# watch can silently drop with the rootless socket, leaving Traefik routing
+# to the dead container's old IP (502 Bad Gateway on the affected app until
+# Traefik is restarted). Restart Traefik right after every auto-update run so
+# it re-reads current endpoints. Harmless if Traefik itself was just updated
+# (it is simply restarted a second time).
+[Service]
+ExecStartPost=/usr/bin/systemctl --user restart container-traefik.service
