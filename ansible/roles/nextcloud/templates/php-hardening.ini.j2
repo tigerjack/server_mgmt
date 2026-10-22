@@ -1,0 +1,10 @@
+; {{ ansible_managed }}
+; PHP overrides for the Nextcloud container, mounted into conf.d as
+; zz-hardening.ini so it loads after the image's own ini files.
+; (PHP ini files only accept ';' comments.)
+
+; Nextcloud uses its own chunked uploads and never reads PHP's session upload
+; progress, so this costs nothing. It closes one attack path of
+; CVE-2026-109619 (PHP2Shell, Oct 2026). Defence in depth only: the actual
+; fix is a patched PHP in the image (8.5.12+ for Nextcloud 34).
+session.upload_progress.enabled = 0

@@ -94,6 +94,26 @@
       names: true
       new: true
 
+- name: Create nextcloud host config directory
+  become: true
+  ansible.builtin.file:
+    path: /etc/nextcloud
+    state: directory
+    owner: "{{ containers_user }}"
+    group: "{{ containers_user }}"
+    mode: "0755"
+
+# Picked up on the next container start (the unit is stopped above and
+# started again below, so a changed ini always takes effect).
+- name: Deploy PHP hardening overrides for nextcloud
+  become: true
+  ansible.builtin.template:
+    src: php-hardening.ini.j2
+    dest: /etc/nextcloud/php-hardening.ini
+    owner: "{{ containers_user }}"
+    group: "{{ containers_user }}"
+    mode: "0644"
+
 - name: Run nextcloud
   become: true
   become_user: "{{ containers_user }}"
@@ -106,6 +126,7 @@
       - nextcloud-html:/var/www/html
       - nextcloud-data:/var/www/html/data
       - nextcloud-config:/var/www/html/config
+      - /etc/nextcloud/php-hardening.ini:/usr/local/etc/php/conf.d/zz-hardening.ini:ro
     network:
       - edge
       - mariadb-nextcloud
