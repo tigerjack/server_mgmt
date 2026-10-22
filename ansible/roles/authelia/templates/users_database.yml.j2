@@ -1,15 +1,17 @@
 # {{ ansible_managed }}
 # EXPERIMENTAL - Authelia file-based user database, generated from the
-# authelia_users list in your vault. Manual provisioning is the approval gate:
+# authelia_users list in host_vars/<host>/vault.yml. Manual provisioning is the approval gate:
 # a person can log in only if they appear here.
 #
 # To add (approve) a user: generate a password hash
 #   podman run --rm {{ authelia_image }} authelia crypto hash generate argon2 --password 'TheirPassword'
-# add an entry to authelia_users in group_vars/all/vault.yml, then re-run the
+# add an entry to authelia_users in the host's vault, then re-run the
 # playbook. To revoke access: set disabled: true (or remove the entry) and re-run.
 # Password hashes: the hash CURRENTLY on the server wins (users change their
 # passwords via Authelia's reset flow, which rewrites this file in place); the
 # vault's password_hash is only the initial hash for users not yet present.
+# Everything else (who exists, email, name, groups) comes from the vault.
+# See docs/users.md.
 users:
 {% set srv = authelia_server_users | default({}) %}
 {% for u in authelia_users | default([]) %}

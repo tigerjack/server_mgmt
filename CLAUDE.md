@@ -7,13 +7,17 @@ Nextcloud, Forgejo + Actions runner, Authelia SSO, EuroOffice/Collabora) as
 
 Detailed docs — read the relevant one before changing behaviour it describes:
 
-- `README.md` — architecture, deployment guide, per-role reference, Authelia
-  users/groups, SMTP, day-2 ops, Nextcloud subpath hacks
-- `RUNBOOK.md` — on-server diagnostics (logs, `scont`, common fixes)
-- `PODMAN-README.md` — one-time host prep (rootless Podman, sudo-rs swap)
-- `FORGEJO-UPGRADE.md` — Forgejo major-version hops, group→team mapping
+- `README.md` — overview, architecture, doc index, repo layout
+- `docs/host-setup.md` — one-time host prep (rootless Podman, sudo-rs swap, `scont`)
+- `docs/deploying.md` — adding a host, vault secrets, `deploy.sh` credentials, what a run does
+- `docs/services.md` — per-role reference; Traefik stale IPs, Nextcloud subpath, same-host OIDC
+- `docs/users.md` — Authelia users, passwords, groups → Forgejo/Nextcloud permissions
+- `docs/smtp.md` — SMTP relay setup
+- `docs/upgrades.md` — image pins, auto-update, security fixes, Nextcloud/Forgejo majors
+- `docs/runbook.md` — on-server diagnostics (logs, common fixes)
 
-Keep these docs in sync when you change behaviour they describe.
+Keep these docs in sync when you change behaviour they describe. Each topic
+lives in one file; link to it rather than repeating it.
 
 ## Commands
 
@@ -67,8 +71,9 @@ There are no tests or linters; verify with `--syntax-check`, and with
 - **Fully-qualified image names** always (`docker.io/library/...`); never bare
   names, never `:latest`. Pin `major.minor` so `podman-auto-update` only picks
   up patches (label `io.containers.autoupdate: "registry"`). Exceptions:
-  Collabora is an exact version pin and EuroOffice is a digest pin (auto-update
-  doesn't apply to digests), both bumped by hand.
+  Nextcloud, Forgejo and Valkey pin only the major; Collabora is an exact
+  version pin and EuroOffice is a digest pin (auto-update doesn't apply to
+  digests), both bumped by hand.
 - **Routing is via Traefik labels** on each container (`traefik.enable=true`;
   `exposedByDefault=false`). Traefik is the only container with host ports
   (80/443/2222) and reaches others on the shared `edge` network.
@@ -96,10 +101,12 @@ There are no tests or linters; verify with `--syntax-check`, and with
   the domain to the real host IP (Podman maps the FQDN to `127.0.1.1`), and
   Nextcloud needs `allow_local_remote_servers=true`.
 - **Authelia** config targets 4.39. `users_database.yml` is re-rendered from
-  the vault's `authelia_users` on every run, so the vault is the source of
-  truth for password hashes.
+  the vault's `authelia_users` on every run, but the role first reads the
+  server copy and keeps each existing user's password hash (users reset their
+  own passwords in place). The vault decides who exists, emails, names and
+  groups; its `password_hash` only seeds new users.
 - **EuroOffice is the editor**: the nextcloud role routes Office formats to it
   and disables `richdocuments` (Collabora).
 - **Forgejo / Nextcloud majors** must be upgraded one major at a time.
 - The quouskwe host ran `sudo-rs`, which Ansible can't drive ("Timeout waiting
-  for privilege escalation prompt"). See `PODMAN-README.md` step 0.
+  for privilege escalation prompt"). See `docs/host-setup.md` step 1.
