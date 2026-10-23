@@ -26,6 +26,7 @@ lives in one file; link to it rather than repeating it.
 ./deploy.sh --limit spqr-project         # one host
 ./deploy.sh --limit <host> --tags forgejo  # one role (tag = role name)
 ./deploy.sh --check                      # any ansible-playbook flag is forwarded
+PLAYBOOK=verify.yml ./deploy.sh --limit <host>  # read-only smoke test (verify.yml)
 
 # Syntax check (run from ansible/ so ansible.cfg is picked up)
 cd ansible && ansible-playbook site.yml --syntax-check --vault-password-file ../.vault_pass
@@ -37,8 +38,11 @@ ansible-vault edit ansible/host_vars/<host>/vault.yml
 `--ask-become-pass` when no `ansible_become_pass` is found in vars or vaults.
 It `cd`s into `ansible/` because `ansible.cfg` must be in the CWD.
 
-There are no tests or linters; verify with `--syntax-check`, and with
-`--check --limit <host> --tags <role>` against a real host when possible.
+There are no tests or linters; verify with `--syntax-check`, with
+`--check --limit <host> --tags <role>` against a real host when possible, and
+after a deploy with `verify.yml` (services answer, units active, runner
+connected). `--check` fails at a `podman_container` + `generate_systemd`
+task when the container doesn't exist yet; that's a check-mode artifact.
 
 ## Layout
 

@@ -58,6 +58,7 @@ From the repo root:
 ./deploy.sh --limit spqr-project                   # one host
 ./deploy.sh --limit spqr-project --tags authelia   # one role (tag = role name)
 ./deploy.sh --limit spqr-project --check --diff    # dry run; any ansible-playbook flag is forwarded
+PLAYBOOK=verify.yml ./deploy.sh                    # read-only smoke test of the live hosts
 
 ansible-vault edit ansible/host_vars/<host>/vault.yml   # a host's secrets and users
 
@@ -73,6 +74,7 @@ ansible/
   ansible.cfg                  must be in the working directory; deploy.sh cd's here
   inventory.yml                host list; every host must be listed here
   site.yml                     one play per role, in dependency order
+  verify.yml                   read-only post-deploy smoke test
   group_vars/all/
     vars.yml                   image pins and shared defaults
     vault.yml                  ENCRYPTED; holds only acme_email

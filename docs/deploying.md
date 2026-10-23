@@ -108,13 +108,39 @@ especially (non-LTS releases get about three months of fixes). See
 ```
 
 ```sh
-for p in / /cloud/ /git/ /auth/; do
-  curl -sS -o /dev/null -w "$p %{http_code}\n" "https://example.com$p"
-done
+PLAYBOOK=verify.yml ./deploy.sh --limit myserver
 ```
 
-`200` or `302` means the service is up. The first certificate can take a
-minute. For a `502` or TLS errors see [runbook.md](runbook.md#traefik).
+`verify.yml` is a read-only smoke test that takes a few seconds. It checks
+that:
+
+- `/`, `/cloud/`, `/git/` and `/auth/` answer `200` or `302` through Traefik
+  with a valid certificate;
+- every enabled `container-*` unit is active (for `ci` too, with an isolated
+  runner);
+- the Actions runner logged `declared successfully` since it last started,
+  i.e. it's connected to Forgejo;
+- with an isolated runner, the `ci` network can reach Traefik.
+
+Run it after any deploy, with or without `--limit`. The first certificate can
+take a minute. For a `502` or TLS errors see [runbook.md](runbook.md#traefik).
+
+To test CI end to end (checkout and a job container), push this to any repo
+and watch its Actions tab:
+
+```yaml
+# .forgejo/workflows/smoke.yml
+on: [push, workflow_dispatch]
+jobs:
+  smoke:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "checked out $(git rev-parse --short HEAD) on $(uname -n)"
+```
+
+If no run appears, check that Actions is enabled in the repo's
+Settings → Units.
 
 ## Running the playbook
 
