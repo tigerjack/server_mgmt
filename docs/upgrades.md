@@ -16,6 +16,16 @@ decides how far an automatic update can go:
 | Collabora | exact version | only a rebuild of that exact tag; bump by hand |
 | EuroOffice | digest | nothing; bump by hand (the registry has no version tags) |
 
+promethence-server overrides the runner pin in its `vars.yml` (`12.13`),
+because its isolated runner needs at least `12.7`. Runner `13` requires
+Docker API 25 or newer; check that your Podman's Docker-compatible API meets
+that before moving any host to it.
+
+Podman itself comes from the distribution. Podman 6 removes slirp4netns,
+which an isolated runner relies on
+([why](services.md#ci-runner-and-the-hosts-own-ip)): before a host with one
+moves to Podman 6, the role needs a pasta-based route.
+
 Before deploying a new host, or every few months, check the pins are still
 supported: [Forgejo releases](https://forgejo.org/releases/) (non-LTS majors
 get about three months of fixes),
@@ -25,7 +35,8 @@ get about three months of fixes),
 ## Automatic updates
 
 The traefik role enables `podman-auto-update.timer` for the `containers`
-user. Once a day it pulls each labelled image, and if the tag now points at a
+user (and the forgejo_runner role for `ci`, on hosts with an isolated
+runner). Once a day it pulls each labelled image, and if the tag now points at a
 new image it **recreates** that container.
 
 A recreated container comes back with a new IP, which Traefik can miss

@@ -22,6 +22,11 @@ names: `traefik`, `authelia`, `static-site`, `nextcloud`, `db_nextcloud`,
 `valkey_nextcloud`, `forgejo`, `db_forgejo`, `forgejo-runner`,
 `eurooffice-ds`, `collabora`.
 
+On a host with an isolated runner (`forgejo_runner_isolated: true`),
+`forgejo-runner` and its job containers belong to the `ci` user instead: use
+the `sci` alias ([host-setup.md](host-setup.md#9-create-the-ci-user-isolated-ci-only))
+in place of `scont` for them.
+
 **After restarting any app container, restart Traefik too**, or it may keep
 routing to the old container IP and return `502`
 ([why](services.md#traefik-and-stale-container-ips)):
@@ -205,4 +210,21 @@ sudo journalctl _SYSTEMD_USER_UNIT=container-forgejo.service -n 50
 scont podman exec --user git forgejo forgejo admin user list
 scont podman exec --user git forgejo forgejo admin user info --username <username>
 scont podman exec --user git forgejo forgejo admin auth list    # authelia source present?
+```
+
+### Actions runner
+
+Jobs stuck on "Waiting for a runner": the runner isn't connected. Check its
+log; a healthy start ends with `declared successfully` and `[poller 0] launched`:
+
+```bash
+cd /tmp
+sudo journalctl _SYSTEMD_USER_UNIT=container-forgejo-runner.service -n 30
+# "permission denied" on podman.sock: the daemon runs as the image's uid 1000,
+#   not as container root - redeploy with --tags forgejo_runner
+# "cannot ping" / TLS errors (isolated): it can't reach https://<domain>/git/,
+#   see services.md#ci-runner-and-the-hosts-own-ip
+
+# Isolated: the CI slice's ceiling and current use
+systemctl show user-$(id -u ci).slice -p MemoryMax -p CPUQuotaPerSecUSec -p MemoryCurrent
 ```

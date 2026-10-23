@@ -1,32 +1,66 @@
 # {{ ansible_managed }}
-# Forgejo Actions runner (act_runner) config. Registration state (which
-# instance, which labels) lives in /data/.runner; this file controls runtime
-# behaviour - concurrency and, importantly, the resource caps applied to each
-# job container.
+# Forgejo Actions runner (act_runner) config. Controls runtime behaviour -
+# concurrency and, importantly, the resource caps applied to each job
+# container. Shared mode: registration state (which instance, which labels)
+# lives in /data/.runner. Isolated mode: it lives here, under server:.
 log:
   level: info
 
+{% if forgejo_runner_isolated %}
+# Offline registration (Forgejo 15, runner >= 12.7): the token is
+# vault_forgejo_runner_secret, the uuid is what `forgejo-cli actions register`
+# printed for it. Public URL: the CI user's containers can't reach the edge
+# network.
+server:
+  connections:
+    forgejo:
+      url: "https://{{ domain }}/git/"
+      uuid: "{{ fr_register.stdout | trim }}"
+      token: "{{ vault_forgejo_runner_secret }}"
+
+{% endif %}
 runner:
   # Max concurrent jobs on this host. Keep low: jobs share the box with all
   # your services, and you have already hit disk/RAM pressure here.
   capacity: {{ forgejo_runner_capacity }}
   timeout: {{ forgejo_runner_job_timeout }}
+{% if forgejo_runner_isolated %}
+  # Declared to Forgejo when the daemon starts.
+  labels:
+{% for label in forgejo_runner_labels.split(',') %}
+    - "{{ label }}"
+{% endfor %}
+{% else %}
   # Empty => use the labels chosen at registration (stored in /data/.runner).
   labels: []
+{% endif %}
 
 cache:
   enabled: true
 
 container:
+{% if forgejo_runner_isolated %}
+  # Network for JOB containers: the CI network, which the runner is also on,
+  # so jobs reach its cache server. Checkout goes over the public URL.
+  network: "{{ forgejo_runner_ci_network }}"
+{% else %}
   # Network for JOB containers. Set to the edge network so a job can reach
   # Forgejo at the internal name (http://forgejo:3000) for checkout - the
   # default per-job network cannot resolve container names.
   network: "{{ edge_network_name }}"
+{% endif %}
   # Extra args passed to EVERY job container. This is where per-job resource
   # caps must live: job containers are spawned as siblings via the Podman
   # socket, so the daemon's own cgroup limit does not constrain them.
-  options: "--memory={{ forgejo_runner_job_memory }} --memory-swap={{ forgejo_runner_job_memory }} --cpus={{ forgejo_runner_job_cpus }}"
+{% if forgejo_runner_isolated %}
+  # --add-host: the same 127.0.1.1 hairpin fix as the runner, for checkout.
+{% endif %}
+  options: "--memory={{ forgejo_runner_job_memory }} --memory-swap={{ forgejo_runner_job_memory }} --cpus={{ forgejo_runner_job_cpus }}{% if forgejo_runner_isolated %} --add-host={{ domain }}:{{ ansible_facts['default_ipv4']['address'] }}{% endif %}"
   # Don't let workflows bind-mount arbitrary host paths into jobs.
   valid_volumes: []
+  # "-": jobs get no Podman socket. "automount": jobs get the runner's socket
+  # at /var/run/docker.sock (isolated mode only - shared mode's socket controls
+  # production).
+  docker_host: "{{ 'automount' if (forgejo_runner_isolated and forgejo_runner_job_docker_access) else '-' }}"
   # Force pull policy off-registry only when missing (keeps repeated jobs fast).
   force_pull: false

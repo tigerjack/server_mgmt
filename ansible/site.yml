@@ -50,11 +50,16 @@
     - forgejo_runner
   tags: [forgejo_runner]
 
+# Not used by Nextcloud (EuroOffice is the editor). No-op when
+# enable_collabora is false.
 - name: Collabora Online (secondary document server)
   hosts: all
-  roles:
-    - collabora
   tags: [collabora]
+  tasks:
+    - name: Deploy Collabora
+      ansible.builtin.include_role:
+        name: collabora
+      when: enable_collabora | default(true)
 
 - name: EuroOffice Document Server (primary document server)
   hosts: all

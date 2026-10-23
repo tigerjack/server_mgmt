@@ -6,7 +6,8 @@ domain `example.com`.
 ## Prerequisites
 
 - The host is prepared per [host-setup.md](host-setup.md): rootless Podman,
-  the `containers` user with lingering, DNS and open ports.
+  the `containers` user with lingering, DNS and open ports, plus the `ci`
+  user if it will run an isolated CI runner (step 9).
 - On your machine: the full `ansible` package (it includes the
   `containers.podman` and `community.general` collections the roles use), and
   this repo cloned **with submodules** (`git submodule update --init`).
@@ -47,6 +48,8 @@ In `vars.yml`:
 | `static_site_dir` | landing page directory under `roles/static_site/files/` |
 | `enable_smtp`, `smtp_*` | optional, see [smtp.md](smtp.md) |
 | `enable_authelia` | `true` by default; `false` skips SSO entirely |
+| `enable_collabora` | `true` by default; `false` skips the unused Collabora server |
+| `forgejo_runner_isolated` | `false` by default; `true` runs CI as the `ci` user, see [services.md](services.md#forgejo_runner) |
 
 Any default in `group_vars/all/vars.yml` can be overridden here.
 
@@ -62,6 +65,7 @@ generate it. In short:
 | `vault_authelia_oidc_jwks_key` (signs the tokens Authelia issues) | `openssl genrsa 4096`; paste the whole PEM, indented under the `\|` |
 | `vault_oidc_{forgejo,nextcloud}_client_secret` and `..._hash` | see below, once per app |
 | `vault_smtp_user`, `vault_smtp_password` | only with SMTP, see [smtp.md](smtp.md) |
+| `vault_forgejo_runner_secret` | only with `forgejo_runner_isolated`: `openssl rand -hex 20` (exactly 40 hex characters) |
 | `authelia_users` | at least one user, see [users.md](users.md#add-a-user) |
 
 OIDC client secrets come as a plaintext + hash pair:

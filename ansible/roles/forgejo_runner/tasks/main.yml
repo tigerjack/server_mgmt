@@ -3,30 +3,191 @@
 # execute them - a separate runner daemon must register with the instance and
 # pick jobs up. Without it, jobs sit "Waiting for a runner with the label:
 # docker" forever. This runs the runner on the SAME host as Forgejo, executing
-# each job as a sibling container via the rootless Podman socket.
+# each job as a sibling container via a rootless Podman socket.
+#
+# Two modes, picked per host by forgejo_runner_isolated:
+#   shared   (false) - runs as containers_user on the edge network, using the
+#                      same Podman socket as every production container.
+#   isolated (true)  - runs as forgejo_runner_ci_user with its own rootless
+#                      Podman, subuid range and network, so neither the runner
+#                      nor an escaped job can reach production. It reaches
+#                      Forgejo over the public URL. See docs/services.md.
 
-- name: Look up the containers user's uid (for the rootless podman socket path)
+- name: Pick the user the runner and its jobs run as
+  ansible.builtin.set_fact:
+    fr_user: "{{ forgejo_runner_ci_user if forgejo_runner_isolated else containers_user }}"
+
+- name: Look up the runner user's uid (for the rootless podman socket path)
   ansible.builtin.getent:
     database: passwd
-    key: "{{ containers_user }}"
-  register: fr_containers_passwd
+    key: "{{ fr_user }}"
+    fail_key: false
+  register: fr_passwd
 
-- name: Set containers_uid fact
+- name: Assert the runner user exists
+  ansible.builtin.assert:
+    that: fr_passwd.ansible_facts.getent_passwd[fr_user] is not none
+    fail_msg: >-
+      User {{ fr_user }} does not exist on this host. Create it first: see
+      docs/host-setup.md, "Create the ci user".
+    quiet: true
+
+- name: Set the runner user's uid and Podman socket path
   ansible.builtin.set_fact:
-    containers_uid: "{{ fr_containers_passwd.ansible_facts.getent_passwd[containers_user][1] }}"
+    fr_uid: "{{ fr_passwd.ansible_facts.getent_passwd[fr_user][1] }}"
+    fr_socket: "/run/user/{{ fr_passwd.ansible_facts.getent_passwd[fr_user][1] }}/podman/podman.sock"
+
+# Isolation only holds if the CI user's subordinate id ranges are its own:
+# overlapping containers_user's, a job's container uids ARE production
+# container uids. Checked against every user, since regular users get
+# auto-assigned blocks too.
+- name: Check the CI user's subuid/subgid ranges don't overlap any other user's
+  ansible.builtin.command:
+    argv:
+      - awk
+      - -F:
+      - -v
+      - "b={{ forgejo_runner_ci_user }}"
+      - -v
+      - "u={{ fr_uid }}"
+      - |
+        $1 == b || $1 == u { bs[++nb] = $2; be[nb] = $2 + $3; next }
+        { on[++n] = $1; os[n] = $2; oe[n] = $2 + $3 }
+        END {
+          if (!nb) { print "no range for " b " in " FILENAME; exit 1 }
+          for (i = 1; i <= n; i++) for (j = 1; j <= nb; j++)
+            if (os[i] < be[j] && bs[j] < oe[i]) {
+              print FILENAME ": range of " b " overlaps range of " on[i]; exit 1
+            }
+        }
+      - "{{ item }}"
+  loop:
+    - /etc/subuid
+    - /etc/subgid
+  changed_when: false
+  when: forgejo_runner_isolated
+
+- name: Assert the runner secret is set (isolated mode)
+  ansible.builtin.assert:
+    that: vault_forgejo_runner_secret | default('') is match('^[0-9a-f]{40}$')
+    fail_msg: >-
+      Set vault_forgejo_runner_secret in host_vars/{{ inventory_hostname }}/vault.yml
+      to 40 lowercase hex characters: openssl rand -hex 20
+    quiet: true
+  when: forgejo_runner_isolated
 
 - name: Ensure the rootless podman API socket is enabled (jobs run as sibling containers)
   become: true
-  become_user: "{{ containers_user }}"
+  become_user: "{{ fr_user }}"
   ansible.builtin.systemd:
     scope: user
     name: podman.socket
     enabled: true
     state: started
 
-- name: Create the runner data volume (persists registration state in /data/.runner)
+# The traefik role does this for containers_user; the CI user needs its own.
+- name: Enable podman-auto-update for the CI user
   become: true
-  become_user: "{{ containers_user }}"
+  become_user: "{{ fr_user }}"
+  ansible.builtin.systemd:
+    scope: user
+    name: podman-auto-update.timer
+    enabled: true
+    state: started
+  when: forgejo_runner_isolated
+
+# Takes effect when the CI user's rootless network namespace next starts,
+# i.e. with none of its containers running (true on a first deploy).
+- name: Create the CI user's Podman config directory
+  become: true
+  become_user: "{{ fr_user }}"
+  ansible.builtin.file:
+    path: "/home/{{ fr_user }}/.config/containers"
+    state: directory
+    mode: "0755"
+  when: forgejo_runner_isolated
+
+- name: Make the CI user's Podman use slirp4netns (pasta can't reach the host's own IP)
+  become: true
+  become_user: "{{ fr_user }}"
+  ansible.builtin.template:
+    src: ci-containers.conf.j2
+    dest: "/home/{{ fr_user }}/.config/containers/containers.conf"
+    mode: "0644"
+  when: forgejo_runner_isolated
+
+- name: Create the CI network (shared by the runner and its job containers)
+  become: true
+  become_user: "{{ fr_user }}"
+  containers.podman.podman_network:
+    name: "{{ forgejo_runner_ci_network }}"
+    state: present
+  when: forgejo_runner_isolated
+
+# Fail here, with the reason, rather than leave a runner that never connects.
+- name: Probe Traefik on the host's IP from the CI network
+  become: true
+  become_user: "{{ fr_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - run
+      - --rm
+      - --network
+      - "{{ forgejo_runner_ci_network }}"
+      - "{{ forgejo_runner_image }}"
+      - nc
+      - -z
+      - -w
+      - "5"
+      - "{{ ansible_facts['default_ipv4']['address'] }}"
+      - "443"
+  register: fr_hairpin
+  changed_when: false
+  failed_when: false
+  when: forgejo_runner_isolated and not ansible_check_mode
+
+- name: Assert CI containers can reach Traefik
+  ansible.builtin.assert:
+    that: fr_hairpin.rc == 0
+    fail_msg: >-
+      A container on the {{ forgejo_runner_ci_network }} network can't reach
+      {{ ansible_facts['default_ipv4']['address'] }}:443, so the runner can't
+      reach Forgejo. If {{ fr_user }} containers were running before
+      containers.conf switched it to slirp4netns, stop them all
+      (sci podman stop -a) and redeploy. podman said: {{ fr_hairpin.stderr | default('') }}
+    quiet: true
+  when: forgejo_runner_isolated and not ansible_check_mode
+
+# Per-job caps (config.yaml) don't reach containers a job starts itself
+# through the socket, so also cap the CI user's whole systemd slice: the
+# runner, its jobs and anything they spawn share this ceiling.
+- name: Create the CI user's slice drop-in directory
+  become: true
+  ansible.builtin.file:
+    path: "/etc/systemd/system/user-{{ fr_uid }}.slice.d"
+    state: directory
+    mode: "0755"
+  when: forgejo_runner_isolated
+
+- name: Cap the CI user's total memory and CPU
+  become: true
+  ansible.builtin.template:
+    src: ci-limits.conf.j2
+    dest: "/etc/systemd/system/user-{{ fr_uid }}.slice.d/50-ci-limits.conf"
+    mode: "0644"
+  register: fr_slice_limits
+  when: forgejo_runner_isolated
+
+- name: Reload systemd so the CI slice limits take effect
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: forgejo_runner_isolated and fr_slice_limits is changed
+
+- name: Create the runner data volume (action cache; shared mode also keeps /data/.runner here)
+  become: true
+  become_user: "{{ fr_user }}"
   containers.podman.podman_volume:
     name: forgejo-runner-data
     state: present
@@ -36,31 +197,61 @@
   ansible.builtin.file:
     path: /etc/forgejo-runner
     state: directory
-    owner: "{{ containers_user }}"
-    group: "{{ containers_user }}"
-    mode: "0755"
+    owner: "{{ fr_user }}"
+    group: "{{ fr_user }}"
+    mode: "0700"
+
+# Isolated mode registers with Forgejo 15's offline flow: the vault holds the
+# runner's 40-hex secret, and `forgejo-cli actions register` creates or
+# updates the runner with it and prints its UUID. Idempotent, so it runs on
+# every deploy and nothing but the vault holds registration state. Labels are
+# left to the runner, which declares runner.labels from config.yaml.
+- name: Register the runner with Forgejo (isolated mode, idempotent)
+  become: true
+  become_user: "{{ containers_user }}"
+  no_log: true        # reads the runner secret
+  # Secret on stdin, so it never appears in the host process list.
+  ansible.builtin.command:
+    cmd: >
+      podman exec -i --user git forgejo
+      forgejo forgejo-cli actions register --secret-stdin --keep-labels
+      --name {{ inventory_hostname }}
+    stdin: "{{ vault_forgejo_runner_secret }}"
+    stdin_add_newline: false
+  register: fr_register
+  changed_when: false
+  when: forgejo_runner_isolated
+
+- name: Assert Forgejo printed the runner's UUID
+  ansible.builtin.assert:
+    that: fr_register.stdout | trim is match('^[0-9a-f-]{36}$')
+    fail_msg: "Expected a UUID from forgejo-cli actions register, got: {{ fr_register.stdout }}"
+    quiet: true
+  when: forgejo_runner_isolated
 
 - name: Deploy the runner config (job resource caps, concurrency, job network)
   become: true
+  no_log: "{{ forgejo_runner_isolated }}"   # isolated: carries the runner token
   ansible.builtin.template:
     src: config.yaml.j2
     dest: /etc/forgejo-runner/config.yaml
-    owner: "{{ containers_user }}"
-    group: "{{ containers_user }}"
-    mode: "0644"
+    owner: "{{ fr_user }}"
+    group: "{{ fr_user }}"
+    # Isolated: holds the runner token.
+    mode: "0600"
 
 - name: Stop the runner while (re)configuring
   become: true
-  become_user: "{{ containers_user }}"
+  become_user: "{{ fr_user }}"
   ansible.builtin.systemd:
     scope: user
     name: container-forgejo-runner.service
     state: stopped
   failed_when: false
 
-# Registration is one-time: the resulting /data/.runner persists in the volume.
-# Re-registering on every deploy would create duplicate runners in Forgejo, so
-# only register when .runner is absent.
+# Shared mode registration is one-time: the resulting /data/.runner persists in
+# the volume. Re-registering on every deploy would create duplicate runners in
+# Forgejo, so only register when .runner is absent.
 - name: Check whether this runner is already registered
   become: true
   become_user: "{{ containers_user }}"
@@ -71,6 +262,7 @@
   register: fr_registered
   changed_when: false
   failed_when: false
+  when: not forgejo_runner_isolated
 
 - name: Generate a one-time runner registration token from Forgejo
   become: true
@@ -80,7 +272,7 @@
     cmd: podman exec --user git forgejo forgejo actions generate-runner-token
   register: fr_token
   changed_when: false
-  when: fr_registered.rc != 0
+  when: not forgejo_runner_isolated and fr_registered.rc != 0
 
 - name: Register the runner (first run only; labels are baked into /data/.runner)
   become: true
@@ -99,26 +291,43 @@
       --token "$FR_TOKEN"
       --name {{ inventory_hostname }}
       --labels {{ forgejo_runner_labels }}'
-  when: fr_registered.rc != 0
+  when: not forgejo_runner_isolated and fr_registered.rc != 0
 
 - name: Run the Forgejo Actions runner daemon
   become: true
-  become_user: "{{ containers_user }}"
+  become_user: "{{ fr_user }}"
+  vars:
+    # Isolated: the socket keeps its host path inside the container, because
+    # docker_host: automount bind-mounts the DOCKER_HOST path into jobs and
+    # Podman resolves that path on the host.
+    fr_socket_in_ct: "{{ fr_socket if forgejo_runner_isolated else '/run/podman/podman.sock' }}"
   containers.podman.podman_container:
     name: forgejo-runner
     image: "{{ forgejo_runner_image }}"
     state: present
-    # On the edge network so it can reach Forgejo at the internal name.
+    # Shared: on the edge network so it can reach Forgejo at the internal name.
+    # Isolated: on the CI network with its jobs, which must reach its cache
+    # server; Forgejo is reached over the public URL.
     network:
-      - "{{ edge_network_name }}"
+      - "{{ forgejo_runner_ci_network if forgejo_runner_isolated else edge_network_name }}"
+    # The image runs as uid 1000, which in a rootless container maps to a
+    # subuid, not the runner user, so it can't open the user's 0660 Podman
+    # socket ("permission denied ... podman.sock") and the unit crash-loops.
+    # Container root IS the runner user on the host: no more than the socket
+    # already grants.
+    user: "0:0"
+    # Isolated: same hairpin fix as the forgejo role (the host maps the FQDN
+    # to 127.0.1.1, which Podman copies into the container).
+    etc_hosts: "{{ {domain: ansible_facts['default_ipv4']['address']} if forgejo_runner_isolated else omit }}"
     volume:
       - forgejo-runner-data:/data
       - /etc/forgejo-runner:/config:ro,Z
-      # The rootless Podman socket - act_runner speaks the Docker API to it to
-      # spawn job containers (same socket Traefik uses for discovery).
-      - "/run/user/{{ containers_uid }}/podman/podman.sock:/run/podman/podman.sock:Z"
+      # The runner user's rootless Podman socket - act_runner speaks the
+      # Docker API to it to spawn job containers. Shared mode: the same
+      # socket Traefik uses for discovery.
+      - "{{ fr_socket }}:{{ fr_socket_in_ct }}:Z"
     env:
-      DOCKER_HOST: "unix:///run/podman/podman.sock"
+      DOCKER_HOST: "unix://{{ fr_socket_in_ct }}"
     command:
       - "forgejo-runner"
       - "daemon"
@@ -130,16 +339,32 @@
     label:
       io.containers.autoupdate: "registry"
     generate_systemd:
-      path: "/home/{{ containers_user }}/.config/systemd/user/"
+      path: "/home/{{ fr_user }}/.config/systemd/user/"
       restart_policy: on-failure
-      requires:
-        - container-forgejo.service
+      # No cross-user Requires= in isolated mode: Forgejo is another user's unit.
+      requires: "{{ [] if forgejo_runner_isolated else ['container-forgejo.service'] }}"
       names: true
       new: true
 
+# Isolated: without Requires= on Forgejo, the runner can start before Forgejo
+# at boot and exit. Space the restarts out so systemd keeps retrying instead
+# of hitting its start limit (5 starts in 10s).
+- name: Space out runner restarts (isolated mode)
+  become: true
+  become_user: "{{ fr_user }}"
+  community.general.ini_file:
+    path: "/home/{{ fr_user }}/.config/systemd/user/container-forgejo-runner.service"
+    section: Service
+    option: RestartSec
+    value: 30
+    mode: "0644"
+    state: present
+    no_extra_spaces: true
+  when: forgejo_runner_isolated
+
 - name: Start the Forgejo Actions runner at boot
   become: true
-  become_user: "{{ containers_user }}"
+  become_user: "{{ fr_user }}"
   ansible.builtin.systemd:
     scope: user
     name: container-forgejo-runner.service

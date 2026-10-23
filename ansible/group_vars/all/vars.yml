@@ -62,6 +62,9 @@ nextcloud_phone_region: "IT"
 # leaving every other host with SMTP off. Same pattern for smtp_host, etc.
 enable_smtp: false
 enable_authelia: true
+# Collabora is deployed but unused (EuroOffice is Nextcloud's editor); set to
+# false per host to skip it and save its RAM.
+enable_collabora: true
 
 # SMTP relay defaults. Each host that enables SMTP should set smtp_host (and
 # optionally the other values) in its own host_vars/<host>/vars.yml along with
@@ -134,3 +137,21 @@ forgejo_runner_job_timeout: "1h"
 forgejo_runner_job_memory: "2g"     # hard cap per job container (mem == swap)
 forgejo_runner_job_cpus: "2"        # CPU cap per job container
 forgejo_runner_daemon_memory: "512m"  # cap for the runner daemon itself
+#
+# Isolated mode, set per host (docs/services.md#forgejo_runner): run the
+# runner and its jobs under a dedicated rootless user instead of
+# containers_user, so neither the runner nor a job that escapes its container
+# can reach the production Podman socket, volumes or the edge network. The
+# user must exist first (docs/host-setup.md). Registers with Forgejo 15's
+# offline flow, so it needs vault_forgejo_runner_secret and runner >= 12.7.
+forgejo_runner_isolated: false
+forgejo_runner_ci_user: "ci"
+forgejo_runner_ci_network: "ci"     # shared by the runner and its jobs
+# Mount the CI user's Podman socket into jobs (docker_host: automount) so
+# workflows can build and run containers. A job with the socket controls every
+# CI container, including the runner and its token, and its own containers
+# escape the per-job caps above; the CI slice caps below still bound the total.
+forgejo_runner_job_docker_access: false
+# Ceiling on everything the CI user runs, enforced on its systemd user slice.
+forgejo_runner_ci_memory_max: "4G"
+forgejo_runner_ci_cpu_quota: "200%"   # 100% = one CPU

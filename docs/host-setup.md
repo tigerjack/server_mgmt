@@ -173,6 +173,38 @@ scont systemctl --user enable --now podman.socket
 scont systemctl --user status podman.socket    # listening on /run/user/<uid>/podman/podman.sock
 ```
 
+## 9. Create the `ci` user (isolated CI only)
+
+Only for hosts with `forgejo_runner_isolated: true` (promethence-server). The
+Forgejo runner and its jobs run there as a second rootless user, so they can't
+touch production ([why](services.md#forgejo_runner)). Same steps as 4–5, but
+its subuid/subgid block must not overlap **any** other user's, including the
+blocks Ubuntu gives regular users. The deploy fails if it does.
+
+```sh
+useradd --system --create-home --home-dir /home/ci --shell /usr/sbin/nologin ci
+passwd -l ci
+
+cat /etc/subuid /etc/subgid      # find a free block; 300000-365535 if nothing is there
+usermod --add-subuids 300000-365535 --add-subgids 300000-365535 ci
+
+loginctl enable-linger ci
+```
+
+Add a matching alias next to `scont`, and check it works:
+
+```bash
+alias sci='sudo -u ci XDG_RUNTIME_DIR=/run/user/$(id -u ci)'
+```
+
+```sh
+cd /tmp
+sci podman run --rm docker.io/library/hello-world
+```
+
+The `forgejo_runner` role does the rest: it enables `ci`'s Podman socket and
+auto-update timer, creates its `ci` network, and caps its systemd slice.
+
 ## Troubleshooting
 
 | Symptom | Cause |
@@ -182,3 +214,4 @@ scont systemctl --user status podman.socket    # listening on /run/user/<uid>/po
 | `Timeout waiting for privilege escalation prompt` during a deploy | host runs `sudo-rs` (step 1) |
 | Containers gone after a reboot | lingering not enabled, or reset after a rebuild/snapshot restore (step 5) |
 | `cannot chdir to /home/<you>:` | run `scont podman` from `/tmp` (step 6) |
+| Deploy fails with `User ci does not exist` or `range of ci overlaps range of …` | step 9 |

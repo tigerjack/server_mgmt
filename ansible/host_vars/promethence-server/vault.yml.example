@@ -1,0 +1,204 @@
+---
+# HOST-SPECIFIC encrypted vault for promethence-server.
+#
+# Copy to vault.yml in this same directory and encrypt it:
+#   cp vault.yml.example vault.yml
+#   ansible-vault encrypt vault.yml
+# Edit later with:
+#   ansible-vault edit vault.yml
+#
+# Everything here is loaded ONLY for the promethence-server host. Each instance
+# (spqr-project, quouskwe-project, ...) gets its own host_vars/<host>/vault.yml with its
+# own users and secrets — they never see each other's values.
+#
+# vault.yml is committed ENCRYPTED only (ansible-vault encrypt) - never commit it
+# in plaintext. .vault_pass is gitignored and must NEVER be committed.
+
+# ---------------------------------------------------------------------------
+# Forgejo
+# ---------------------------------------------------------------------------
+# Internal MariaDB credentials for the Forgejo database container.
+# vault_forgejo_db_root_password: root password for the MariaDB instance
+#   (only used for administrative SQL access, not by Forgejo itself)
+# vault_forgejo_db_password: password for the "forgejo" database user
+#   (used by the Forgejo container to connect to its database)
+# Generate both with: openssl rand -hex 32
+vault_forgejo_db_root_password: ""
+vault_forgejo_db_database:       "forgejo"
+vault_forgejo_db_user:           "forgejo"
+vault_forgejo_db_password:       ""
+
+# Forgejo application admin account (created on first run, idempotent after).
+# This is a LOCAL Forgejo account used purely for CLI administration — it
+# never logs in via Authelia/OIDC and exists as a break-glass fallback.
+#
+# IMPORTANT: this username MUST differ from your personal Authelia username.
+# When you sign in via Authelia for the first time, Forgejo creates a new
+# account tied to your OIDC identity. If a local account with the same
+# username already exists, Forgejo refuses the link with "account already
+# exists" and you cannot log in via SSO.
+#
+# Use a neutral service name here (e.g. "forgejo-admin") and log in to the
+# Forgejo web UI with your own username only via the Authelia portal.
+#
+# Generate the password with: openssl rand -base64 32
+vault_forgejo_admin_user:        "forgejo-admin"
+vault_forgejo_admin_password:    ""
+vault_forgejo_admin_email:       "forgejo-admin@TODO.example.com"   # TODO: this host's domain
+
+# ---------------------------------------------------------------------------
+# Nextcloud
+# ---------------------------------------------------------------------------
+# Internal MariaDB credentials for the Nextcloud database container.
+# vault_nextcloud_db_root_password: root password for the MariaDB instance
+# vault_nextcloud_db_password: password for the "nextcloud" database user
+# Generate both with: openssl rand -hex 32
+vault_nextcloud_db_root_password: ""
+vault_nextcloud_db_database:      "nextcloud"
+vault_nextcloud_db_user:          "nextcloud"
+vault_nextcloud_db_password:      ""
+
+# Nextcloud application admin account (created on first run, idempotent after).
+# This user gets the "admin" role inside Nextcloud.
+# It is distinct from any Authelia user — regular users log in via OIDC, but
+# the admin account is a local fallback if OIDC breaks.
+vault_nextcloud_admin_user:       "admin"
+vault_nextcloud_admin_password:   ""
+
+# ---------------------------------------------------------------------------
+# Forgejo Actions runner (isolated mode)
+# ---------------------------------------------------------------------------
+# The runner's connection secret for Forgejo 15's offline registration. Each
+# deploy registers (or updates) the runner with it; the runner then uses it as
+# its token. Exactly 40 lowercase hex characters - generate with:
+#   openssl rand -hex 20
+# The first 16 characters identify the runner. To rotate it, change only the
+# last 24 and redeploy; changing the first 16 registers a new runner instead.
+vault_forgejo_runner_secret: ""
+
+# ---------------------------------------------------------------------------
+# EuroOffice Document Server
+# ---------------------------------------------------------------------------
+# JWT secret shared between the EuroOffice container and the Nextcloud
+# richdocuments app. Both sides must have the same value — it is used to
+# sign and verify document-open requests. Not a password; generate with:
+#   openssl rand -hex 32
+# Do NOT share this value across instances.
+vault_eurooffice_jwt_secret: ""
+
+# ---------------------------------------------------------------------------
+# SMTP relay (leave blank if not using authenticated SMTP)
+# ---------------------------------------------------------------------------
+# Credentials for the outbound SMTP relay (e.g. Brevo).
+# vault_smtp_user:     your relay login / account email
+# vault_smtp_password: SMTP API key or relay password
+vault_smtp_user:     ""
+vault_smtp_password: ""
+
+# ---------------------------------------------------------------------------
+# Authelia secrets
+# ---------------------------------------------------------------------------
+# Four independent random 256-bit secrets. Each serves a different internal
+# purpose; they must all be unique. Generate each with: openssl rand -hex 32
+#
+# vault_authelia_session_secret:         signs the browser session cookie
+# vault_authelia_storage_encryption_key: encrypts Authelia's SQLite database
+#   (TOTP secrets, WebAuthn keys, remember-me tokens)
+# vault_authelia_jwt_secret:             signs password-reset tokens
+# vault_authelia_oidc_hmac_secret:       used in OIDC token derivation (HMAC)
+vault_authelia_session_secret:         ""
+vault_authelia_storage_encryption_key: ""
+vault_authelia_jwt_secret:             ""
+vault_authelia_oidc_hmac_secret:       ""
+
+# OIDC issuer signing key — RSA 4096-bit private key in PEM format.
+#
+# Authelia uses this key to sign the JWT tokens it issues to Nextcloud and
+# Forgejo after a successful login. Each app verifies the signature against
+# the corresponding public key, which Authelia publishes automatically at
+# https://<domain>/auth/.well-known/jwks.json.
+#
+# Generate once per instance (do NOT share this key across instances — each
+# server must have its own):
+#   openssl genrsa 4096
+#
+# Paste the entire output (including BEGIN/END lines) here, preserving the
+# block-scalar style (the leading | and two-space indent on every line):
+vault_authelia_oidc_jwks_key: |
+  -----BEGIN PRIVATE KEY-----
+  ...paste the whole PEM here, indented by two spaces...
+  -----END PRIVATE KEY-----
+
+# ---------------------------------------------------------------------------
+# OIDC client secrets (one matched pair per app)
+# ---------------------------------------------------------------------------
+# Each app registered as an OIDC client needs a shared secret. Authelia stores
+# only the hash; the plaintext goes to the app. Generate a matched pair with:
+#
+#   podman run --rm docker.io/authelia/authelia:4.39 \
+#     authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 48
+#
+# The command prints two lines:
+#   Random Password: <PLAINTEXT>   → *_client_secret     (goes to the app)
+#   Digest:          <HASH>        → *_client_secret_hash (stays in Authelia)
+#
+# Run it twice: once for Forgejo, once for Nextcloud.
+#
+# Forgejo — used by the "authelia" OAuth2 source inside Forgejo's admin panel
+vault_oidc_forgejo_client_secret:        ""
+vault_oidc_forgejo_client_secret_hash:   ""
+# Nextcloud — used by the user_oidc app inside Nextcloud
+vault_oidc_nextcloud_client_secret:      ""
+vault_oidc_nextcloud_client_secret_hash: ""
+
+# ---------------------------------------------------------------------------
+# Authelia users (THIS instance's approved logins)
+# ---------------------------------------------------------------------------
+# Only users listed here can log in. There is no self-service registration.
+# Adding an entry and re-running the playbook is the approval step.
+#
+# Fields:
+#   username:      login name (must be unique, lowercase recommended)
+#   displayname:   shown in Authelia's portal UI
+#   email:         where password-reset links are sent (MUST be correct — the
+#                  password-reset link goes here; wrong email = user is locked out)
+#   password_hash: argon2 hash of the user's initial password (see below)
+#   groups:        list of groups controlling app permissions (see below)
+#
+# Groups → roles (how the `groups` list maps to app permissions):
+#   admins   → Forgejo admin. Set by forgejo_oidc_admin_group in
+#              group_vars/all/vars.yml; members get the Forgejo admin role on
+#              their next OIDC login.
+#   <any>    → synced into Nextcloud as a like-named group (for quotas, group
+#              folders, and share policies) when nextcloud_oidc_group_provisioning
+#              is true. This does NOT grant Nextcloud admin — admin stays with the
+#              local Nextcloud admin account on purpose.
+# Group names are free-form. Add your own (e.g. developers, staff) and wire them
+# up in Forgejo team maps or Nextcloud group settings as needed. A user with no
+# groups defaults to the "users" group.
+#
+# IMPORTANT: the password field must be a valid argon2/bcrypt hash. An empty
+# string or a non-hash value causes Authelia to fail to parse users_database.yml
+# and refuse to start, locking everyone out. Always set a real hash, even if it
+# is only a throwaway.
+#
+# Recommended first-login flow:
+# 1. Generate a hash for a throwaway password (share it out-of-band with the user):
+#      podman run --rm docker.io/authelia/authelia:4.39 \
+#        authelia crypto hash generate argon2 --password 'ChangeMe123!'
+# 2. Put that hash here, deploy.
+# 3. The user logs in with the throwaway password and sets their own via
+#    "Forgot my password" at https://<domain>/auth (requires SMTP) or the portal
+#    UI (Settings → Change password) — they never need to share it with you.
+#
+# Deploys DO NOT overwrite passwords users have changed: the role reads the
+# current /etc/authelia/users_database.yml and keeps the server's hash for any
+# user already present. The password_hash here only seeds NEW users, so there
+# is no need to harvest hashes back into this vault after resets. Removing a
+# user's entry here still revokes their access on the next deploy.
+authelia_users:
+  - username: "sperriello"
+    displayname: "Stefano Perriello"
+    email: "sperriello@proton.me"
+    password_hash: "$argon2id$v=19$..."
+    groups: [admins]

@@ -10,7 +10,9 @@ Podman containers**, all behind **one domain** with path-based routing:
 | `/git` | Forgejo (git forge) with a same-host Actions runner; git over SSH on port `2222` |
 | `/auth` | Authelia: login portal and OIDC single sign-on for Nextcloud and Forgejo |
 
-Managed hosts: `spqr-project`, `quouskwe-project`.
+Managed hosts: `spqr-project`, `quouskwe-project`. `promethence-server` is
+being set up: its `host_vars/` exist, but it stays commented out in the
+inventory until its address and vault are filled in.
 
 ## Architecture
 
