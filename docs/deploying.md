@@ -49,7 +49,7 @@ In `vars.yml`:
 | `enable_smtp`, `smtp_*` | optional, see [smtp.md](smtp.md) |
 | `enable_authelia` | `true` by default; `false` skips SSO entirely |
 | `enable_collabora` | `true` by default; `false` skips the unused Collabora server |
-| `forgejo_runner_isolated` | `false` by default; `true` runs CI as the `ci` user, see [services.md](services.md#forgejo_runner) |
+| `forgejo_runner_isolated` | `false` by default; `true` runs CI as the `ci` user, see [ci.md](ci.md#shared-and-isolated-modes) |
 
 Any default in `group_vars/all/vars.yml` can be overridden here.
 
@@ -125,22 +125,8 @@ that:
 Run it after any deploy, with or without `--limit`. The first certificate can
 take a minute. For a `502` or TLS errors see [runbook.md](runbook.md#traefik).
 
-To test CI end to end (checkout and a job container), push this to any repo
-and watch its Actions tab:
-
-```yaml
-# .forgejo/workflows/smoke.yml
-on: [push, workflow_dispatch]
-jobs:
-  smoke:
-    runs-on: docker
-    steps:
-      - uses: actions/checkout@v4
-      - run: echo "checked out $(git rev-parse --short HEAD) on $(uname -n)"
-```
-
-If no run appears, check that Actions is enabled in the repo's
-Settings → Units.
+To test CI end to end with a workflow, see
+[ci.md](ci.md#testing-the-runner).
 
 ## Running the playbook
 

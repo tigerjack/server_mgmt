@@ -138,7 +138,7 @@ forgejo_runner_job_memory: "2g"     # hard cap per job container (mem == swap)
 forgejo_runner_job_cpus: "2"        # CPU cap per job container
 forgejo_runner_daemon_memory: "512m"  # cap for the runner daemon itself
 #
-# Isolated mode, set per host (docs/services.md#forgejo_runner): run the
+# Isolated mode, set per host (docs/ci.md): run the
 # runner and its jobs under a dedicated rootless user instead of
 # containers_user, so neither the runner nor a job that escapes its container
 # can reach the production Podman socket, volumes or the edge network. The

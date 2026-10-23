@@ -11,7 +11,7 @@
 #   isolated (true)  - runs as forgejo_runner_ci_user with its own rootless
 #                      Podman, subuid range and network, so neither the runner
 #                      nor an escaped job can reach production. It reaches
-#                      Forgejo over the public URL. See docs/services.md.
+#                      Forgejo over the public URL. See docs/ci.md.
 
 - name: Pick the user the runner and its jobs run as
   ansible.builtin.set_fact:

@@ -177,7 +177,7 @@ scont systemctl --user status podman.socket    # listening on /run/user/<uid>/po
 
 Only for hosts with `forgejo_runner_isolated: true` (promethence-server). The
 Forgejo runner and its jobs run there as a second rootless user, so they can't
-touch production ([why](services.md#forgejo_runner)). Same steps as 4–5, but
+touch production ([why](ci.md#shared-and-isolated-modes)). Same steps as 4–5, but
 its subuid/subgid block must not overlap **any** other user's, including the
 blocks Ubuntu gives regular users. The deploy fails if it does.
 

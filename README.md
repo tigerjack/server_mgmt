@@ -44,6 +44,7 @@ Browser ──► Traefik :80/:443 ─┬─► /               static site
 | [docs/host-setup.md](docs/host-setup.md) | Prepare a fresh server (rootless Podman, `containers` user, sudo). Once per host. |
 | [docs/deploying.md](docs/deploying.md) | Add a host, fill in its secrets, run the playbook |
 | [docs/services.md](docs/services.md) | Know what each role deploys and why the unusual config is there |
+| [docs/ci.md](docs/ci.md) | Write and test CI workflows, configure the Forgejo Actions runner |
 | [docs/users.md](docs/users.md) | Add or remove users, reset passwords, map groups to permissions |
 | [docs/smtp.md](docs/smtp.md) | Turn on outgoing mail (password resets, notifications) |
 | [docs/upgrades.md](docs/upgrades.md) | Understand image pins and auto-updates, apply a security fix, upgrade Nextcloud or Forgejo to a new major |

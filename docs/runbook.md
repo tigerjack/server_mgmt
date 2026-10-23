@@ -214,6 +214,8 @@ scont podman exec --user git forgejo forgejo admin auth list    # authelia sourc
 
 ### Actions runner
 
+How the runner works and how to test it: [ci.md](ci.md).
+
 Jobs stuck on "Waiting for a runner": the runner isn't connected. Check its
 log; a healthy start ends with `declared successfully` and `[poller 0] launched`:
 
@@ -223,7 +225,7 @@ sudo journalctl _SYSTEMD_USER_UNIT=container-forgejo-runner.service -n 30
 # "permission denied" on podman.sock: the daemon runs as the image's uid 1000,
 #   not as container root - redeploy with --tags forgejo_runner
 # "cannot ping" / TLS errors (isolated): it can't reach https://<domain>/git/,
-#   see services.md#ci-runner-and-the-hosts-own-ip
+#   see ci.md#reaching-forgejo-from-an-isolated-runner
 
 # Isolated: the CI slice's ceiling and current use
 systemctl show user-$(id -u ci).slice -p MemoryMax -p CPUQuotaPerSecUSec -p MemoryCurrent

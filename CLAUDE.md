@@ -11,6 +11,7 @@ Detailed docs — read the relevant one before changing behaviour it describes:
 - `docs/host-setup.md` — one-time host prep (rootless Podman, sudo-rs swap, `scont`)
 - `docs/deploying.md` — adding a host, vault secrets, `deploy.sh` credentials, what a run does
 - `docs/services.md` — per-role reference; Traefik stale IPs, Nextcloud subpath, same-host OIDC
+- `docs/ci.md` — Forgejo Actions runner: workflows, testing, variables, shared/isolated modes
 - `docs/users.md` — Authelia users, passwords, groups → Forgejo/Nextcloud permissions
 - `docs/smtp.md` — SMTP relay setup
 - `docs/upgrades.md` — image pins, auto-update, security fixes, Nextcloud/Forgejo majors
@@ -76,7 +77,7 @@ task when the container doesn't exist yet; that's a check-mode artifact.
   dirs/config → (re)create the container → enable/start the unit.
   Exception: with `forgejo_runner_isolated: true` the runner and its jobs run
   as `forgejo_runner_ci_user` (`ci`) instead, with their own Podman socket and
-  network, so CI can't reach production (`docs/services.md`).
+  network, so CI can't reach production (`docs/ci.md`).
 - **Fully-qualified image names** always (`docker.io/library/...`); never bare
   names, never `:latest`. Pin `major.minor` so `podman-auto-update` only picks
   up patches (label `io.containers.autoupdate: "registry"`). Exceptions:

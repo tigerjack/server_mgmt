@@ -2,7 +2,7 @@
 
 What each role deploys, followed by the implementation notes that explain
 the less obvious config. All containers run rootless as `containers` (except
-an [isolated runner](#forgejo_runner), which runs as `ci`), are
+an [isolated CI runner](ci.md#shared-and-isolated-modes), which runs as `ci`), are
 created with `generate_systemd` (unit `container-<name>.service`, restart on
 failure), and use the image pins in `group_vars/all/vars.yml`.
 
@@ -85,49 +85,10 @@ Then `git clone example.com:owner/repo.git`. Without it:
 
 ### `forgejo_runner`
 
-Forgejo Actions runner (`act_runner`) for same-host CI. It runs each job as a
-sibling container through a rootless Podman socket; `runs-on: docker` matches
-its `docker` label. No web route. Concurrency and per-job memory/CPU caps are
-the `forgejo_runner_*` variables in `group_vars/all/vars.yml`, kept low
-because CI shares the host with everything else. Jobs get no Podman socket of
-their own unless you opt in (below).
-
-It runs in one of two modes, set per host with `forgejo_runner_isolated`:
-
-| | Shared (default) | Isolated |
-|---|---|---|
-| Hosts | spqr-project, quouskwe-project | promethence-server |
-| Runs as | `containers`, beside production | `ci`: its own rootless Podman, subuid range and socket |
-| Podman socket | the production one (Traefik's) | `ci`'s, which controls only CI containers |
-| Network | `edge`; reaches Forgejo at `http://forgejo:3000` | `ci`, on slirp4netns; reaches Forgejo at `https://<domain>/git/` ([why](#ci-runner-and-the-hosts-own-ip)) |
-| Registration | token generated on the first deploy; state in `/data/.runner` in the `forgejo-runner-data` volume | Forgejo 15 offline registration with `vault_forgejo_runner_secret`, re-applied on every deploy; UUID and token in `/etc/forgejo-runner/config.yaml` (0600) |
-| Total resource ceiling | only the per-job caps | `forgejo_runner_ci_memory_max` / `forgejo_runner_ci_cpu_quota` on `ci`'s systemd slice |
-
-**Why isolated.** In shared mode the runner holds the socket that controls
-every production container, and a job that escapes its container lands as
-`containers`, which owns all the data. Under `ci`, both land in a user that
-owns nothing but CI. That only holds if `ci`'s subuid/subgid ranges are its
-own, so the role fails if they overlap any other user's.
-
-**Jobs that build or run containers** (`docker build`, testcontainers): set
-`forgejo_runner_job_docker_access: true` (isolated mode only). Jobs then get
-`ci`'s socket at `/var/run/docker.sock` (`docker_host: automount`). The cost:
-such a job can control every CI container, including the runner, read its
-token, and mount any host path `ci` can read. The containers it starts aren't
-bound by the per-job caps, only by the slice ceiling. Acceptable when you
-trust everyone who can push a workflow. Note that any Authelia user can
-create a repo and push one.
-
-**Moving a host to isolated mode:**
-
-1. Create the `ci` user ([host-setup.md](host-setup.md#9-create-the-ci-user-isolated-ci-only)).
-2. Add `vault_forgejo_runner_secret` to the host's vault (`openssl rand -hex 20`).
-3. In its `vars.yml`, set `forgejo_runner_isolated: true` and a runner image
-   of at least `12.7` (`server.connections` needs it).
-4. `./deploy.sh --limit <host> --tags forgejo_runner`.
-5. Remove the old runner:
-   `cd /tmp && scont systemctl --user disable --now container-forgejo-runner.service`,
-   then delete it in Forgejo under Site administration → Actions → Runners.
+Forgejo Actions runner: runs each CI job in a container of its own, on the
+same host as Forgejo. No web route. How jobs run, writing and testing
+workflows, its variables and its shared and isolated modes:
+[ci.md](ci.md).
 
 ### `eurooffice` and `collabora`
 
@@ -200,27 +161,3 @@ two workarounds for the server-to-server OIDC calls:
 The OIDC issuer is `https://<domain>/auth`, with discovery at
 `/auth/.well-known/openid-configuration`; issuer-mismatch errors usually come
 from this prefix.
-
-### CI runner and the host's own IP
-
-An isolated runner is on the same machine as Forgejo but not on the same
-network: each rootless user has its own network namespaces, and `edge` exists
-only in `containers`'. So the runner and its jobs reach Forgejo the way a
-browser does, through Traefik's port 443 on the host. Two things stand in the
-way:
-
-- **The name.** As for OIDC above, the domain would resolve to `127.0.1.1`.
-  The runner (`etc_hosts`) and every job (`--add-host` in `config.yaml`) map
-  it to the host's real IP.
-- **The route to that IP.** pasta, Podman 5's default rootless network,
-  copies the host's IP into the container's namespace, so a connection to it
-  never leaves the namespace and fails. Inside `containers`' namespace it
-  still works, because Traefik's port forwarding lives there; `ci`'s has
-  none. slirp4netns routes the connection out to the host, so the role sets
-  it as `ci`'s `default_rootless_network_cmd`. Tested on spqr-project, from
-  containers pointed at the host's IP: `edge` and slirp4netns got through,
-  pasta didn't.
-
-The role probes `<host IP>:443` from the `ci` network on every deploy and
-fails if it's unreachable. Podman 6 removes slirp4netns, so on a Podman 6
-host this probe fails and the role needs a pasta-based route instead.

@@ -23,7 +23,7 @@ that before moving any host to it.
 
 Podman itself comes from the distribution. Podman 6 removes slirp4netns,
 which an isolated runner relies on
-([why](services.md#ci-runner-and-the-hosts-own-ip)): before a host with one
+([why](ci.md#reaching-forgejo-from-an-isolated-runner)): before a host with one
 moves to Podman 6, the role needs a pasta-based route.
 
 Before deploying a new host, or every few months, check the pins are still
