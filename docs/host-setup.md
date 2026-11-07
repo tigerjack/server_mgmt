@@ -175,7 +175,7 @@ scont systemctl --user status podman.socket    # listening on /run/user/<uid>/po
 
 ## 9. Create the `ci` user (isolated CI only)
 
-Only for hosts with `forgejo_runner_isolated: true` (promethence-server). The
+Only for hosts with `forgejo_runner_isolated: true`. The
 Forgejo runner and its jobs run there as a second rootless user, so they can't
 touch production ([why](ci.md#shared-and-isolated-modes)). Same steps as 4–5, but
 its subuid/subgid block must not overlap **any** other user's, including the

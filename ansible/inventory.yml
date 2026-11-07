@@ -10,4 +10,3 @@ all:
   hosts:
     spqr-project:
     quouskwe-project:
-    # promethence-server:  # uncomment once host_vars/promethence-server/ has real values and a vault.yml

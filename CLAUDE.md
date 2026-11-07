@@ -55,9 +55,7 @@ task when the container doesn't exist yet; that's a check-mode artifact.
   `vault.yml` here holds only `acme_email`.
 - `ansible/host_vars/<host>/{vars.yml,vault.yml}` — per-host config and
   secrets. Hosts: `spqr-project`, `quouskwe-project` (must also be listed in
-  `inventory.yml`); `promethence-server` has host_vars with TODO placeholders
-  and is commented out in the inventory until they're filled in.
-  `example-server.yml` and `*.yml.example` are templates.
+  `inventory.yml`). `example-server.yml` and `*.yml.example` are templates.
 - `ansible/roles/<role>/tasks/main.yml` — task files. Templates go in
   `templates/`, static files in `files/`.
 - `ansible/roles/static_site/files/<static_site_dir>/` — per-host landing page

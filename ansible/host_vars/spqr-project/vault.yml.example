@@ -195,7 +195,7 @@ vault_oidc_nextcloud_client_secret_hash: ""
 # user's entry here still revokes their access on the next deploy.
 authelia_users:
   - username: "sperriello"
-    displayname: "Stefano Perriello"
+    displayname: "Simone Perriello"
     email: "sperriello@proton.me"
     password_hash: "$argon2id$v=19$..."
     groups: [admins]

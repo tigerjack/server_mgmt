@@ -99,7 +99,7 @@ editor from there. The image is pinned by digest.
 **Collabora** is still deployed (routes `/cool`, `/browser`, `/hosting`) but
 Nextcloud doesn't use it, because the nextcloud role disables
 `richdocuments`. Set `enable_collabora: false` in a host's `vars.yml` to skip
-it and save RAM (promethence-server does). That only stops future deploys;
+it and save RAM. That only stops future deploys;
 on a host where it already runs, also
 `scont systemctl --user disable --now container-collabora.service`. To switch back,
 re-enable `richdocuments` and remove the task that disables it from the

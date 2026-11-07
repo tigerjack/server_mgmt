@@ -16,8 +16,8 @@ decides how far an automatic update can go:
 | Collabora | exact version | only a rebuild of that exact tag; bump by hand |
 | EuroOffice | digest | nothing; bump by hand (the registry has no version tags) |
 
-promethence-server overrides the runner pin in its `vars.yml` (`12.13`),
-because its isolated runner needs at least `12.7`. Runner `13` requires
+A host with an isolated runner overrides the runner pin in its `vars.yml`,
+because isolated mode needs at least `12.7`. Runner `13` requires
 Docker API 25 or newer; check that your Podman's Docker-compatible API meets
 that before moving any host to it.
 

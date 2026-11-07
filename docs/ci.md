@@ -22,7 +22,8 @@ everything else.
 
 Where the runner runs depends on the host's mode
 ([Shared and isolated modes](#shared-and-isolated-modes)): spqr-project and
-quouskwe-project use the shared mode, promethence-server the isolated one.
+quouskwe-project use the shared mode; a host opts into the isolated one with
+`forgejo_runner_isolated: true`.
 
 ## Writing workflows
 
@@ -169,7 +170,7 @@ the role updates the runner in Forgejo and in its config. Changing the first
 
 | | Shared (default) | Isolated |
 |---|---|---|
-| Hosts | spqr-project, quouskwe-project | promethence-server |
+| Hosts | spqr-project, quouskwe-project | those with `forgejo_runner_isolated: true` |
 | Runs as | `containers`, beside production | `ci`: its own rootless Podman, subuid range and socket |
 | Podman socket | the production one (Traefik's) | `ci`'s, which controls only CI containers |
 | Network | `edge`; reaches Forgejo at `http://forgejo:3000` | `ci`, on slirp4netns; reaches Forgejo at `https://<domain>/git/` ([why](#reaching-forgejo-from-an-isolated-runner)) |
