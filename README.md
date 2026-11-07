@@ -96,7 +96,8 @@ scripts/
   convert.py                   Authelia users_database.yml -> vault authelia_users list
   notify-usernames.sh          email every user their username (dry run by default)
 docs/                          see the table above
-CLAUDE.md                      notes for AI coding agents working on this repo
+AGENTS.md                      notes for AI coding agents working on this repo
+CLAUDE.md                      imports AGENTS.md for Claude Code
 ```
 
 Clone with `git clone --recurse-submodules`, or run `git submodule update
