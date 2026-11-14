@@ -10,7 +10,9 @@ Podman containers**, all behind **one domain** with path-based routing:
 | `/git` | Forgejo (git forge) with a same-host Actions runner; git over SSH on port `2222` |
 | `/auth` | Authelia: login portal and OIDC single sign-on for Nextcloud and Forgejo |
 
-Managed hosts: `spqr-project`, `quouskwe-project`.
+Managed hosts: `spqr-project`, `quouskwe-project`. `promethence-server` is
+being set up: its `host_vars/` exist, but it stays commented out in the
+inventory until its address and vault are filled in.
 
 ## Architecture
 
@@ -42,6 +44,7 @@ Browser ──► Traefik :80/:443 ─┬─► /               static site
 | [docs/host-setup.md](docs/host-setup.md) | Prepare a fresh server (rootless Podman, `containers` user, sudo). Once per host. |
 | [docs/deploying.md](docs/deploying.md) | Add a host, fill in its secrets, run the playbook |
 | [docs/services.md](docs/services.md) | Know what each role deploys and why the unusual config is there |
+| [docs/ci.md](docs/ci.md) | Write and test CI workflows, configure the Forgejo Actions runner |
 | [docs/users.md](docs/users.md) | Add or remove users, reset passwords, map groups to permissions |
 | [docs/smtp.md](docs/smtp.md) | Turn on outgoing mail (password resets, notifications) |
 | [docs/upgrades.md](docs/upgrades.md) | Understand image pins and auto-updates, apply a security fix, upgrade Nextcloud or Forgejo to a new major |
@@ -56,6 +59,7 @@ From the repo root:
 ./deploy.sh --limit spqr-project                   # one host
 ./deploy.sh --limit spqr-project --tags authelia   # one role (tag = role name)
 ./deploy.sh --limit spqr-project --check --diff    # dry run; any ansible-playbook flag is forwarded
+PLAYBOOK=verify.yml ./deploy.sh                    # read-only smoke test of the live hosts
 
 ansible-vault edit ansible/host_vars/<host>/vault.yml   # a host's secrets and users
 
@@ -71,6 +75,7 @@ ansible/
   ansible.cfg                  must be in the working directory; deploy.sh cd's here
   inventory.yml                host list; every host must be listed here
   site.yml                     one play per role, in dependency order
+  verify.yml                   read-only post-deploy smoke test
   group_vars/all/
     vars.yml                   image pins and shared defaults
     vault.yml                  ENCRYPTED; holds only acme_email

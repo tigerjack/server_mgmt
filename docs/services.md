@@ -1,7 +1,8 @@
 # Services
 
 What each role deploys, followed by the implementation notes that explain
-the less obvious config. All containers run rootless as `containers`, are
+the less obvious config. All containers run rootless as `containers` (except
+an [isolated CI runner](ci.md#shared-and-isolated-modes), which runs as `ci`), are
 created with `generate_systemd` (unit `container-<name>.service`, restart on
 failure), and use the image pins in `group_vars/all/vars.yml`.
 
@@ -84,13 +85,10 @@ Then `git clone example.com:owner/repo.git`. Without it:
 
 ### `forgejo_runner`
 
-Forgejo Actions runner (`act_runner`) for same-host CI. It registers with
-Forgejo once, using a token generated at deploy, and keeps the registration
-in the `forgejo-runner-data` volume. It runs each job as a sibling container
-through the Podman socket; `runs-on: docker` matches its `docker` label. No
-web route. Concurrency and per-job memory/CPU caps are the `forgejo_runner_*`
-variables in `group_vars/all/vars.yml`, kept low because CI shares the host
-with everything else.
+Forgejo Actions runner: runs each CI job in a container of its own, on the
+same host as Forgejo. No web route. How jobs run, writing and testing
+workflows, its variables and its shared and isolated modes:
+[ci.md](ci.md).
 
 ### `eurooffice` and `collabora`
 
@@ -100,7 +98,10 @@ editor from there. The image is pinned by digest.
 
 **Collabora** is still deployed (routes `/cool`, `/browser`, `/hosting`) but
 Nextcloud doesn't use it, because the nextcloud role disables
-`richdocuments`. Drop it from `site.yml` to save RAM. To switch back,
+`richdocuments`. Set `enable_collabora: false` in a host's `vars.yml` to skip
+it and save RAM (promethence-server does). That only stops future deploys;
+on a host where it already runs, also
+`scont systemctl --user disable --now container-collabora.service`. To switch back,
 re-enable `richdocuments` and remove the task that disables it from the
 nextcloud role.
 

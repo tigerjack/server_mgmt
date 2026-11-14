@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+# Podman settings for the CI user only.
+[network]
+# CI containers reach Forgejo through Traefik on the host's own public IP.
+# pasta (Podman 5's default) copies that IP into the container's network
+# namespace, so the connection never leaves it and fails; slirp4netns routes
+# it out to the host. Also used for the namespace behind bridge networks
+# (the CI network) on Podman 5.
+default_rootless_network_cmd = "slirp4netns"

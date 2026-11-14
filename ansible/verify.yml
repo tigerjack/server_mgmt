@@ -1,0 +1,97 @@
+---
+# Post-deploy smoke test. Read-only: it changes nothing on the host.
+#   PLAYBOOK=verify.yml ./deploy.sh --limit <host>
+# Checks that every service answers through Traefik with a valid certificate,
+# that every enabled container unit is active, and that the Actions runner
+# connected to Forgejo after its last start. See docs/deploying.md.
+- name: Verify a deployed host
+  hosts: all
+  gather_facts: true
+  gather_subset: ["!all", "network"]
+  vars:
+    vf_runner_user: "{{ forgejo_runner_ci_user if forgejo_runner_isolated else containers_user }}"
+  tasks:
+    - name: Each service answers through Traefik (200 or 302, valid TLS)
+      ansible.builtin.uri:
+        url: "https://{{ domain }}{{ item }}"
+        follow_redirects: none
+        status_code: [200, 302]
+      loop: "{{ ['/', '/cloud/', '/git/'] + (['/auth/'] if enable_authelia | default(false) else []) }}"
+      delegate_to: localhost
+      vars:
+        # Delegated tasks inherit the host's vars: its interpreter path, which
+        # may not exist here, and group_vars' ansible_become, which as a var
+        # beats a `become: false` keyword.
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+        ansible_become: false
+
+    - name: List enabled container units that aren't active
+      become: true
+      become_user: "{{ item }}"
+      ansible.builtin.shell: |
+        cd /tmp
+        export XDG_RUNTIME_DIR=/run/user/$(id -u)
+        for u in $(systemctl --user list-unit-files --state=enabled --plain --no-legend 'container-*' | awk '{print $1}'); do
+          s=$(systemctl --user is-active "$u")
+          [ "$s" = active ] || echo "$u: $s"
+        done
+      loop: "{{ [containers_user] + ([forgejo_runner_ci_user] if forgejo_runner_isolated else []) }}"
+      register: vf_units
+      changed_when: false
+
+    - name: Assert every enabled container unit is active
+      ansible.builtin.assert:
+        that: vf_units.results | map(attribute='stdout') | select | list | length == 0
+        fail_msg: "Not active: {{ vf_units.results | map(attribute='stdout') | select | join(', ') }}"
+        quiet: true
+
+    - name: Find when the runner last started
+      become: true
+      become_user: "{{ vf_runner_user }}"
+      ansible.builtin.shell: |
+        cd /tmp
+        export XDG_RUNTIME_DIR=/run/user/$(id -u)
+        systemctl --user show -p ActiveEnterTimestamp --value container-forgejo-runner.service
+      register: vf_runner_since
+      changed_when: false
+
+    # Read as root: the runner user may not be allowed to read the journal.
+    - name: Look for the runner's successful connection since then
+      ansible.builtin.shell: >
+        journalctl _SYSTEMD_USER_UNIT=container-forgejo-runner.service
+        --since '{{ vf_runner_since.stdout }}' -o cat
+        | grep -c 'declared successfully'
+      register: vf_runner_declared
+      changed_when: false
+      failed_when: false
+
+    - name: Assert the runner connected to Forgejo
+      ansible.builtin.assert:
+        that:
+          - vf_runner_since.stdout | length > 0
+          - vf_runner_declared.stdout | default('0') | int > 0
+        fail_msg: >-
+          The runner hasn't connected to Forgejo since it started
+          ({{ vf_runner_since.stdout | default('never') }}). See its log:
+          sudo journalctl _SYSTEMD_USER_UNIT=container-forgejo-runner.service -n 30
+        quiet: true
+
+    - name: Probe Traefik from the CI network (isolated runner)
+      become: true
+      become_user: "{{ forgejo_runner_ci_user }}"
+      ansible.builtin.command:
+        argv:
+          - podman
+          - run
+          - --rm
+          - --network
+          - "{{ forgejo_runner_ci_network }}"
+          - "{{ forgejo_runner_image }}"
+          - nc
+          - -z
+          - -w
+          - "5"
+          - "{{ ansible_facts['default_ipv4']['address'] }}"
+          - "443"
+      changed_when: false
+      when: forgejo_runner_isolated

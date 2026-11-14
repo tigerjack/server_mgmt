@@ -1,0 +1,44 @@
+---
+# How Ansible reaches this host
+ansible_host: TODO.example.com              # TODO: server IP or hostname
+ansible_user: sperriello
+ansible_ssh_private_key_file: ~/.ssh/promethence_2026
+# ansible_python_interpreter: /usr/bin/python3.12   # set if auto-detection picks the wrong one
+
+# TODO: create roles/static_site/files/site-promethence/ and point this at it.
+static_site_dir: "site"
+
+# Public domain pointing at this server's IP.
+# Used by Traefik for TLS (Let's Encrypt) and by every app as its base URL.
+domain: "TODO.example.com"                  # TODO
+
+# --- SMTP relay (per-host override) ---
+# Brevo, domain promethence.com authenticated. Credentials go in vault.yml:
+# vault_smtp_user / vault_smtp_password.
+enable_smtp: true
+smtp_host: "smtp-relay.brevo.com"
+smtp_port: 587
+smtp_security: "starttls"
+smtp_from: "noreply@promethence.com"
+
+# Collabora is deployed but unused elsewhere; leave its RAM to CI here.
+enable_collabora: false
+
+# --- Forgejo Actions runner: isolated mode ---
+# Runner and jobs run as the `ci` user (create it first: docs/host-setup.md,
+# "Create the ci user"), not as `containers`. Registration secret:
+# vault_forgejo_runner_secret in vault.yml.
+forgejo_runner_isolated: true
+# server.connections (offline registration) needs runner >= 12.7. The other
+# hosts stay on the group_vars pin until they move to isolated mode too.
+forgejo_runner_image: "code.forgejo.org/forgejo/runner:12.13"
+# Uncomment to let workflows build/run containers via the ci user's socket:
+# forgejo_runner_job_docker_access: true
+# forgejo_runner_ci_memory_max: "4G"
+# forgejo_runner_ci_cpu_quota: "200%"
+
+# Forgejo group → org-team mapping (see group_vars/all/vars.yml). Uncomment
+# once the org and team exist in Forgejo - the deploy doesn't create them.
+# forgejo_oidc_group_team_map:
+#   promethence:
+#     promethence: [Members]

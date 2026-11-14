@@ -14,6 +14,7 @@
 #   ./deploy.sh                        # full run, auto-detects credentials
 #   ./deploy.sh --limit spqr-project   # single host
 #   ./deploy.sh --tags forgejo         # single role
+#   PLAYBOOK=verify.yml ./deploy.sh --limit spqr-project   # read-only smoke test
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -63,7 +64,7 @@ cd "$ANSIBLE_DIR"
 
 exec ansible-playbook \
     -i "$ANSIBLE_DIR/inventory.yml" \
-    "$ANSIBLE_DIR/site.yml" \
+    "$ANSIBLE_DIR/${PLAYBOOK:-site.yml}" \
     "${vault_args[@]}" \
     "${become_args[@]}" \
     "$@"

@@ -10,4 +10,4 @@ all:
   hosts:
     spqr-project:
     quouskwe-project:
-    # promethence:         # uncomment when ready
+    # promethence-server:  # uncomment once host_vars/promethence-server/ has real values and a vault.yml

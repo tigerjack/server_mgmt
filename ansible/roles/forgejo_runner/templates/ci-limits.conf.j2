@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+# Ceiling on everything the CI user runs: the Forgejo runner, its job
+# containers, and any container a job starts through the Podman socket.
+# Production containers keep the rest of the box.
+[Slice]
+MemoryMax={{ forgejo_runner_ci_memory_max }}
+MemorySwapMax=0
+CPUQuota={{ forgejo_runner_ci_cpu_quota }}
