@@ -132,10 +132,24 @@ To test CI end to end with a workflow, see
 
 ### Passwords `deploy.sh` needs
 
-- **Vault password.** Read from `.vault_pass` in the repo root if present
-  (gitignored; `chmod 600`), otherwise prompted.
+- **Vault password.** The first available source is used:
+  1. `.vault_pass` in the repo root (plaintext, gitignored; `chmod 600`);
+  2. the desktop keyring (GNOME Keyring, KWallet or KeePassXC via Secret
+     Service), read by `scripts/vault-pass-keyring.sh`. Store it once; it
+     prompts for the password:
+     ```sh
+     secret-tool store --label='server_mgmt ansible vault' \
+         service ansible-vault project server_mgmt
+     ```
+  3. an interactive prompt.
+
+  The keyring is preferable to `.vault_pass`, since the password isn't left
+  in a plaintext file. To use it with plain `ansible-playbook`/`ansible-vault`
+  commands as well, pass `--vault-password-file scripts/vault-pass-keyring.sh`
+  or export `ANSIBLE_VAULT_PASSWORD_FILE` pointing at it.
 - **Sudo password.** Not prompted if `ansible_become_pass` is set in plain
-  vars, or inside a vault that `deploy.sh` can decrypt with `.vault_pass`.
+  vars, or inside a vault that `deploy.sh` can decrypt without prompting
+  (`.vault_pass` or the keyring).
   Otherwise it adds `--ask-become-pass`, which takes **one** password for all
   hosts. If the hosts' sudo passwords differ, deploy with `--limit` one host at
   a time, or store each password in its host vault:

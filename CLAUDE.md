@@ -30,12 +30,13 @@ lives in one file; link to it rather than repeating it.
 PLAYBOOK=verify.yml ./deploy.sh --limit <host>  # read-only smoke test (verify.yml)
 
 # Syntax check (run from ansible/ so ansible.cfg is picked up)
-cd ansible && ansible-playbook site.yml --syntax-check --vault-password-file ../.vault_pass
+cd ansible && ansible-playbook site.yml --syntax-check --vault-password-file ../scripts/vault-pass-keyring.sh
 
-ansible-vault edit ansible/host_vars/<host>/vault.yml
+ansible-vault edit --vault-password-file scripts/vault-pass-keyring.sh ansible/host_vars/<host>/vault.yml
 ```
 
-`deploy.sh` uses `.vault_pass` if present (else prompts) and only adds
+`deploy.sh` takes the vault password from `.vault_pass` if present, else the
+desktop keyring (`scripts/vault-pass-keyring.sh`), else prompts; and only adds
 `--ask-become-pass` when no `ansible_become_pass` is found in vars or vaults.
 It `cd`s into `ansible/` because `ansible.cfg` must be in the CWD.
 
