@@ -3,8 +3,9 @@
 # Run from the repo root.  All extra arguments are forwarded to ansible-playbook.
 #
 # Automatic behaviour (no flags needed in the common case):
-#   - If .vault_pass exists next to this script, it is passed via
-#     --vault-password-file (no interactive vault prompt).
+#   - Vault password: .vault_pass next to this script if present, else the
+#     desktop keyring via scripts/vault-pass-keyring.sh if it holds the
+#     password, else an interactive prompt.
 #   - If ansible_become_pass is wired up — either as a plaintext assignment in
 #     group_vars/host_vars, or inside an encrypted vault.yml (per-host become
 #     passwords belong here) — become auth is automatic, no sudo prompt.
@@ -20,9 +21,18 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 ANSIBLE_DIR="$REPO_ROOT/ansible"
 
-vault_args=()
+# Vault password source, first match wins: a plaintext .vault_pass file, the
+# desktop keyring (probed by running the client script once), a prompt.
+vault_pass_file=""
+keyring_client="$REPO_ROOT/scripts/vault-pass-keyring.sh"
 if [[ -f "$REPO_ROOT/.vault_pass" ]]; then
-    vault_args=(--vault-password-file "$REPO_ROOT/.vault_pass")
+    vault_pass_file="$REPO_ROOT/.vault_pass"
+elif "$keyring_client" >/dev/null 2>&1; then
+    vault_pass_file="$keyring_client"
+fi
+
+if [[ -n "$vault_pass_file" ]]; then
+    vault_args=(--vault-password-file "$vault_pass_file")
 else
     vault_args=(--ask-vault-pass)
 fi
@@ -33,7 +43,8 @@ fi
 # files - a plaintext grep can never see it (the file is an opaque
 # $ANSIBLE_VAULT blob). So we check two places:
 #   1. plaintext vars files  - an uncommented assignment (comments don't count)
-#   2. encrypted vault files  - decrypt with .vault_pass and grep the result
+#   2. encrypted vault files  - decrypt with the vault password source above
+#                               (file or keyring) and grep the result
 # If found in either, become auth comes from the vault and no prompt is needed.
 #
 # Note: become passwords are per-host (set in each host_vars/<host>/vault.yml),
@@ -47,11 +58,11 @@ search_paths=("$ANSIBLE_DIR/group_vars" "$ANSIBLE_DIR/host_vars")
 if grep -rEq '^[[:space:]]*ansible_become_pass[[:space:]]*:' \
        "${search_paths[@]}" 2>/dev/null; then
     become_args=()
-# 2. Otherwise look inside encrypted vaults (needs the vault password file).
-elif [[ -f "$REPO_ROOT/.vault_pass" ]]; then
+# 2. Otherwise look inside encrypted vaults (needs a non-interactive source).
+elif [[ -n "$vault_pass_file" ]]; then
     while IFS= read -r -d '' f; do
         head -n1 "$f" 2>/dev/null | grep -q '^\$ANSIBLE_VAULT' || continue
-        if ansible-vault view --vault-password-file "$REPO_ROOT/.vault_pass" "$f" 2>/dev/null \
+        if ansible-vault view --vault-password-file "$vault_pass_file" "$f" 2>/dev/null \
              | grep -Eq '^[[:space:]]*ansible_become_pass[[:space:]]*:'; then
             become_args=()
             break
