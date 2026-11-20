@@ -129,7 +129,7 @@ Harmless noise, even though it's logged as `error`:
 
 | Log message | Why it's harmless |
 |---|---|
-| `Request timeout occurred ... i/o timeout ... status_code=408` from Traefik's IP | Traefik's idle keep-alive connections being closed; no user request is lost |
+| `Request timeout occurred ... i/o timeout ... status_code=408` from Traefik's IP | Authelia closing Traefik's idle keep-alive connections; no user request is lost. `server.timeouts` in `configuration.yml.j2` (120s, above Traefik's 90s `idleConnTimeout`) should stop it; if it persists, raise them further |
 | `token ... already revoked` during `/api/reset-password` | A reset link was opened twice (double click, prefetch, refresh). The first use worked. |
 
 To look at a user's live entry (the file is bind-mounted on the host):

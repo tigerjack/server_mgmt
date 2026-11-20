@@ -10,6 +10,15 @@ server:
   # Serve the whole app under {{ authelia_subpath }} so it shares the main
   # domain with everything else (no subdomain available).
   address: "tcp://0.0.0.0:9091{{ authelia_subpath }}"
+  # Traefik keeps idle keep-alive connections to backends for 90s (its
+  # default idleConnTimeout). With Authelia's defaults (read 6s, idle 30s)
+  # Authelia closes them first and logs a spurious level=error
+  # "Request timeout occurred ... status_code=408". Outlive Traefik so it
+  # closes them instead. Safe: only Traefik reaches Authelia, and it applies
+  # its own timeouts to real clients.
+  timeouts:
+    read: 120s
+    idle: 120s
 
 log:
   level: info
