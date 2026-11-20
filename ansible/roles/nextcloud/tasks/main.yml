@@ -305,6 +305,8 @@
     - forms           # Form builder / surveys
     - polls           # Decision-making polls
     - tasks           # Tasks / to-do lists (CalDAV-backed)
+    - deck            # Kanban boards
+    - formvox         # File-based forms and polls (third-party)
 
 - name: Enable bundled Nextcloud apps (shipped with NC but disabled by default)
   become: true
